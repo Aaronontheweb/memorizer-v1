@@ -76,11 +76,11 @@ services:
       exit 1
       "
 
-  # memorizer application
+  # Memorizer application
   memorizer:
-    image: petabridge/memorizer:latest
+    image: memorizer:latest
     restart: unless-stopped
-    container_name: memorizer
+    container_name: memorizer-dev
     environment:
       - ConnectionStrings__Storage=Host=postgres;Port=5432;Database=postgmem;Username=postgres;Password=postgres
       - MEMORIZER_Embeddings__ApiUrl=http://ollama:11434

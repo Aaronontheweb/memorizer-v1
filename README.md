@@ -26,32 +26,48 @@ Key features:
 
 ## Installation with Docker
 
-## 🚀 Local Builds
+### 🐳 Quick Start (Public Image)
 
-### Prerequisites
-- Docker and Docker Compose
-- .NET 9.0 SDK
-
-### 1. Start Infrastructure and Application
-
-```bash
-# From solution root directory
-# Build and publish the .NET container
-
-dotnet publish -c Release /t:PublishContainer
-```
-
-This creates a container image named `memorizer:latest`.
+The easiest way to get started is using the pre-built Docker image and our [`docker-compose.yml`](docker-compose.yml) file:
 
 ```bash
 docker-compose up -d
 ```
 
-This starts:
-- PostgreSQL with pgvector (port 5432)
-- PgAdmin (port 5050)
-- Ollama (port 11434)
-- Memorizer API (port 5000)
+This will:
+- Download and run the latest [`petabridge/memorizer` image from Docker Hub](https://hub.docker.com/r/petabridge/memorizer)
+- Start PostgreSQL with pgvector (port 5432)
+- Start PgAdmin (port 5050)
+- Start Ollama (port 11434)
+- Start Memorizer API (port 5000)
+
+**View the Memorizer Web UI on http://localhost:5000/ui**.
+
+### 🚀 Local Development Builds
+
+If you want to build and run from source:
+
+#### Prerequisites
+- Docker and Docker Compose
+- .NET 9.0 SDK
+
+#### 1. Build and Publish Local Container
+
+```bash
+# From solution root directory
+# Build and publish the .NET container
+dotnet publish -c Release /t:PublishContainer
+```
+
+This creates a container image named `memorizer:latest`.
+
+#### 2. Start Infrastructure and Application
+
+```bash
+docker-compose -f docker-compose.local.yml up -d
+```
+
+This starts the same services but uses your locally built image.
 
 ---
 
@@ -91,6 +107,9 @@ The Web UI provides a user-friendly interface for all Memorizer functionality, m
 ---
 
 ## 🧠 Example System Prompt for LLMs
+
+> [!IMPORTANT]
+> **⚡ Pro Tip:** Add this system prompt to your `AGENT.md`, Cursor Rules files, or any AI agent configuration! This will dramatically improve how often and effectively your LLM uses the Memorizer service for persistent memory management.
 
 > You have access to a long-term memory system via the Model Context Protocol (MCP) at the endpoint `memorizer`. Use the following tools:
 >
