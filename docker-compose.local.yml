@@ -78,7 +78,7 @@ services:
 
   # PostgMem application
   postg-mem:
-    image: petabridge/memorizer:latest
+    image: memorizer:latest
     restart: unless-stopped
     container_name: postgmem-api
     environment:
