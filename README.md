@@ -108,6 +108,9 @@ The Web UI provides a user-friendly interface for all Memorizer functionality, m
 
 ## 🧠 Example System Prompt for LLMs
 
+> [!IMPORTANT]
+> **⚡ Pro Tip:** Add this system prompt to your `AGENT.md`, Cursor Rules files, or any AI agent configuration! This will dramatically improve how often and effectively your LLM uses the Memorizer service for persistent memory management.
+
 > You have access to a long-term memory system via the Model Context Protocol (MCP) at the endpoint `memorizer`. Use the following tools:
 >
 > - `store`: Store a new memory. Parameters: `type`, `content` (JSON), `source`, `tags`, `confidence`, `relatedTo` (optional, memory ID), `relationshipType` (optional).
