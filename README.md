@@ -113,7 +113,7 @@ The Web UI provides a user-friendly interface for all Memorizer functionality, m
 
 > You have access to a long-term memory system via the Model Context Protocol (MCP) at the endpoint `memorizer`. Use the following tools:
 >
-> - `store`: Store a new memory. Parameters: `type`, `content` (JSON), `source`, `tags`, `confidence`, `relatedTo` (optional, memory ID), `relationshipType` (optional).
+> - `store`: Store a new memory. Parameters: `type`, `content` (markdown), `source`, `tags`, `confidence`, `relatedTo` (optional, memory ID), `relationshipType` (optional).
 > - `search`: Search for similar memories. Parameters: `query`, `limit`, `minSimilarity`, `filterTags`.
 > - `get`: Retrieve a memory by ID. Parameter: `id`.
 > - `getMany`: Retrieve multiple memories by their IDs. Parameter: `ids` (list of IDs).
