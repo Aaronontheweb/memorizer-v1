@@ -1,3 +1,4 @@
+using Memorizer.Settings;
 using Npgsql;
 using Registrator.Net;
 
@@ -22,16 +23,23 @@ public class MemoryStats
     /// Average size of memory content in bytes
     /// </summary>
     public long AverageMemorySizeBytes { get; set; }
+    
+    /// <summary>
+    /// Configured embedding dimensions
+    /// </summary>
+    public int EmbeddingDimensions { get; set; }
 }
 
 [AutoRegisterInterfaces(ServiceLifetime.Singleton)]
 public class MemoryStatsService : IMemoryStatsService
 {
     private readonly NpgsqlDataSource _dataSource;
+    private readonly EmbeddingSettings _embeddingSettings;
     
-    public MemoryStatsService(NpgsqlDataSource dataSource)
+    public MemoryStatsService(NpgsqlDataSource dataSource, EmbeddingSettings embeddingSettings)
     {
         _dataSource = dataSource;
+        _embeddingSettings = embeddingSettings;
     }
     
     public async Task<MemoryStats> GetStatsAsync(CancellationToken cancellationToken = default)
@@ -61,7 +69,8 @@ public class MemoryStatsService : IMemoryStatsService
         return new MemoryStats
         {
             TotalMemories = totalMemories,
-            AverageMemorySizeBytes = avgSizeBytes
+            AverageMemorySizeBytes = avgSizeBytes,
+            EmbeddingDimensions = _embeddingSettings.Dimensions
         };
     }
 } 

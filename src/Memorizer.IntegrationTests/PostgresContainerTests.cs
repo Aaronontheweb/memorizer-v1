@@ -66,7 +66,7 @@ public class IntegrationTests : TestKit
         await using var conn = new NpgsqlConnection(_fixture.PostgresConnectionString);
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
-        // Create a vector with 384 dimensions (all zeros)
+        // Create a vector with default dimensions (384) - matches database schema
         var vector = string.Join(",", Enumerable.Repeat("0", 384));
         cmd.CommandText = $"INSERT INTO memories (id, type, content, text, source, embedding, tags, confidence, created_at, updated_at) VALUES (gen_random_uuid(), 'test', '{{}}'::jsonb, 'test text', 'test', '[{vector}]'::vector, ARRAY['tag'], 1.0, now(), now()) RETURNING id;";
         var id = await cmd.ExecuteScalarAsync();

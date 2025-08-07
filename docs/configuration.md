@@ -38,13 +38,22 @@ Configure the application settings in the `.env` file or as environment variable
 MEMORIZER_ConnectionStrings__Storage=Host=localhost;Port=5432;Database=memorizer;Username=postgres;Password=postgres
 MEMORIZER_Embeddings__ApiUrl=http://localhost:11434
 MEMORIZER_Embeddings__Model=all-minilm:33m-l12-v2-fp16
+MEMORIZER_Embeddings__Dimensions=384
 MEMORIZER_Server__CanonicalUrl=example.com:8080
 ```
 
 - `MEMORIZER_ConnectionStrings__Storage`: PostgreSQL connection string
 - `MEMORIZER_Embeddings__ApiUrl`: URL of your embedding API (defaults to Ollama)
 - `MEMORIZER_Embeddings__Model`: The embedding model to use
+- `MEMORIZER_Embeddings__Dimensions`: The dimension size for embeddings (default: 384)
 - `MEMORIZER_Server__CanonicalUrl`: (Optional) The canonical URL/hostname for this server. Used for generating MCP configuration. Defaults to `localhost:{port}` where port is extracted from `ASPNETCORE_URLS`
+
+> ⚠️ **IMPORTANT**: Changing the `Dimensions` configuration after the database has been initialized will cause runtime errors. PostgreSQL's `pgvector` extension uses fixed-dimension columns that cannot accept vectors of different sizes. If you need to change dimensions:
+> 1. For new deployments: Set the desired dimension value before first run
+> 2. For existing databases: You must manually migrate the database by either:
+>    - Dropping and recreating the tables with new vector dimensions
+>    - Creating new columns with the desired dimensions and migrating data
+>    - Re-embedding all existing content with the new model
 
 ### MCP Configuration
 

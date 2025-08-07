@@ -58,7 +58,7 @@
                 <div class="mb-3">
                     <i class="fas fa-vector-square fa-3x text-warning"></i>
                 </div>
-                <h3 class="mb-1">384D</h3>
+                <h3 class="mb-1">@(Model.EmbeddingDimensions)D</h3>
                 <p class="text-muted mb-0">Vector Dimensions</p>
             </div>
         </div>
@@ -105,7 +105,7 @@
                             <h6 class="text-muted mb-1">Embedding Model</h6>
                             <p class="mb-0">
                                 <i class="fas fa-brain me-2 text-warning"></i>
-                                384-dimensional vectors
+                                @(Model.EmbeddingDimensions)-dimensional vectors
                             </p>
                         </div>
                         <div class="mb-3">

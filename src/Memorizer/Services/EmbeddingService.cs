@@ -73,7 +73,7 @@ public class EmbeddingService : IEmbeddingService
             // Fallback to a random embedding in case of error
             _logger.LogWarning("Falling back to random embedding generation");
             Random random = new();
-            float[] embedding = new float[384];
+            float[] embedding = new float[_settings.Dimensions];
             for (int i = 0; i < embedding.Length; i++)
             {
                 embedding[i] = (float)random.NextDouble();
