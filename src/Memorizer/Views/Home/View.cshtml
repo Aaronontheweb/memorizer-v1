@@ -34,7 +34,7 @@
                         <span class="visually-hidden">Loading memory...</span>
                     </div>
                 </div>
-                
+
                 <!-- Memory content (hidden initially) -->
                 <div id="memoryContent" style="display: none;">
                     <!-- Memory metadata -->
@@ -79,7 +79,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Rendered content -->
                     <div class="card">
                         <div class="card-header">
@@ -94,7 +94,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Related memories section -->
                     <div id="relatedMemoriesSection" style="display:none;" class="mt-4">
                         <div class="card">
@@ -112,7 +112,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Error state (hidden initially) -->
                 <div id="errorState" style="display: none;" class="text-center py-5">
                     <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
@@ -128,98 +128,10 @@
     </div>
 </div>
 
-@section Styles {
-<style>
-.markdown-content {
-    line-height: 1.6;
-}
-
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3,
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6 {
-    margin-top: 1.5rem;
-    margin-bottom: 1rem;
-    font-weight: 600;
-}
-
-.markdown-content h1 { border-bottom: 2px solid #e9ecef; padding-bottom: 0.5rem; }
-.markdown-content h2 { border-bottom: 1px solid #e9ecef; padding-bottom: 0.3rem; }
-
-.markdown-content p {
-    margin-bottom: 1rem;
-}
-
-.markdown-content ul,
-.markdown-content ol {
-    margin-bottom: 1rem;
-    padding-left: 2rem;
-}
-
-.markdown-content li {
-    margin-bottom: 0.25rem;
-}
-
-.markdown-content blockquote {
-    border-left: 4px solid #007bff;
-    padding-left: 1rem;
-    margin: 1rem 0;
-    color: #6c757d;
-    font-style: italic;
-}
-
-.markdown-content code {
-    background-color: #f8f9fa;
-    padding: 0.2rem 0.4rem;
-    border-radius: 0.25rem;
-    font-size: 0.875em;
-}
-
-.markdown-content pre {
-    background-color: #f8f9fa;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    overflow-x: auto;
-    margin: 1rem 0;
-}
-
-.markdown-content pre code {
-    background-color: transparent;
-    padding: 0;
-}
-
-.markdown-content table {
-    width: 100%;
-    margin-bottom: 1rem;
-    border-collapse: collapse;
-}
-
-.markdown-content th,
-.markdown-content td {
-    padding: 0.75rem;
-    border: 1px solid #dee2e6;
-}
-
-.markdown-content th {
-    background-color: #f8f9fa;
-    font-weight: 600;
-}
-
-.markdown-content a {
-    color: #007bff;
-    text-decoration: none;
-}
-
-.markdown-content a:hover {
-    text-decoration: underline;
-}
-</style>
-}
-
 @section Scripts {
 <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="~/js/mermaid-integration.js"></script>
 <script>
 let memoryId = '@(ViewBag.MemoryId?.ToString() ?? "")';
 
@@ -227,12 +139,12 @@ async function deleteMemory() {
     if (!confirm('Are you sure you want to delete this memory? This action cannot be undone.')) {
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/memory/${memoryId}`, {
             method: 'DELETE'
         });
-        
+
         if (response.ok) {
             // Redirect to the index page after successful deletion
             window.location.href = '/ui/';
@@ -250,7 +162,7 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Memory ID:', memoryId);
     if (memoryId && memoryId !== '') {
         loadMemory();
-        
+
         // Fallback: Force hide spinner after 5 seconds
         setTimeout(function() {
             const spinner = document.getElementById('loadingSpinner');
@@ -268,20 +180,20 @@ async function loadMemory() {
     try {
         console.log('Loading memory with ID:', memoryId);
         const response = await fetch(`/api/memory/${memoryId}`);
-        
+
         if (!response.ok) {
             throw new Error('Memory not found');
         }
-        
+
         const memory = await response.json();
         console.log('Memory loaded:', memory);
-        
+
         populateMemoryView(memory);
         console.log('Memory view populated');
-        
+
         hideSpinner();
         showMemoryContent();
-        
+
     } catch (error) {
         console.error('Error loading memory:', error);
         showError();
@@ -294,13 +206,13 @@ function populateMemoryView(memory) {
         const title = memory.title || 'Untitled Memory';
         document.getElementById('memoryTitle').textContent = title;
         document.title = `${title} - Memorizer`;
-        
+
         // Set metadata
         document.getElementById('memoryType').textContent = memory.type || 'Unknown';
         document.getElementById('memorySource').textContent = memory.source || 'Unknown';
         document.getElementById('memoryConfidence').innerHTML = createConfidenceBadge(memory.confidence || 1.0);
         document.getElementById('memoryCreated').textContent = formatDateTime(memory.createdAt);
-        
+
         // Set tags
         const tagsContainer = document.getElementById('memoryTags');
         if (memory.tags && memory.tags.length > 0) {
@@ -308,22 +220,27 @@ function populateMemoryView(memory) {
         } else {
             tagsContainer.innerHTML = '<span class="text-muted">No tags</span>';
         }
-        
+
         // Render markdown content
         const content = memory.text || 'No content available';
         const renderedHtml = marked.parse(content);
         document.getElementById('renderedContent').innerHTML = renderedHtml;
-        
-        // Highlight code blocks
+
+        // Highlight code blocks with Prism
         if (typeof Prism !== 'undefined') {
             Prism.highlightAll();
         }
-        
+
+        // Render Mermaid diagrams
+        if (typeof MermaidIntegration !== 'undefined') {
+            MermaidIntegration.render();
+        }
+
         // Handle related memories
         if (memory.relationships && memory.relationships.length > 0) {
             displayRelatedMemories(memory.relationships);
         }
-        
+
         console.log('All memory view fields populated successfully');
     } catch (error) {
         console.error('Error in populateMemoryView:', error);
@@ -334,20 +251,20 @@ function populateMemoryView(memory) {
 function displayRelatedMemories(relationships) {
     const section = document.getElementById('relatedMemoriesSection');
     const list = document.getElementById('relatedMemoriesList');
-    
+
     list.innerHTML = '';
-    
+
     relationships.forEach(rel => {
         const title = rel.relatedMemoryTitle || 'Untitled';
         const type = rel.relatedMemoryType || '';
         const relationshipType = rel.relationshipType || 'related';
-        
+
         // Get badge color based on relationship type
         const badgeColor = getRelationshipBadgeColor(relationshipType);
-        
+
         const col = document.createElement('div');
         col.className = 'col-md-6 col-lg-4 mb-3';
-        
+
         col.innerHTML = `
             <div class="card h-100">
                 <div class="card-body">
@@ -381,10 +298,10 @@ function displayRelatedMemories(relationships) {
                 </div>
             </div>
         `;
-        
+
         list.appendChild(col);
     });
-    
+
     section.style.display = 'block';
 }
 
@@ -438,4 +355,4 @@ function showError() {
     document.getElementById('errorState').style.display = 'block';
 }
 </script>
-} 
+}

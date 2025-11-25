@@ -1,0 +1,112 @@
+/* =================================================================
+   THEME VARIABLES
+   CSS custom properties defining all colors for light and dark themes.
+
+   To switch themes: set data-theme="dark" on <html> element
+   ================================================================= */
+
+/* Light Theme (default) */
+:root {
+    /* Brand Colors */
+    --sidebar-gradient-start: #667eea;
+    --sidebar-gradient-end: #764ba2;
+    --brand-primary: #667eea;
+    --brand-secondary: #764ba2;
+    --brand-primary-hover: #5a67d8;
+    --brand-secondary-hover: #6b46c1;
+
+    /* Surface Colors */
+    --surface-page: #f8f9fa;
+    --surface-card: #ffffff;
+    --surface-card-alt: #f8f9fa;
+    --surface-overlay: rgba(255, 255, 255, 0.2);
+
+    /* Text Colors */
+    --text-primary: #212529;
+    --text-secondary: #6c757d;
+    --text-muted: #6c757d;
+    --text-on-brand: #ffffff;
+    --text-on-brand-muted: rgba(255, 255, 255, 0.8);
+
+    /* Border Colors */
+    --border-default: #dee2e6;
+    --border-light: #e9ecef;
+    --border-emphasis: #007bff;
+    --sidebar-divider: rgba(255, 255, 255, 0.3);
+
+    /* Shadow Colors */
+    --shadow-sm: rgba(0, 0, 0, 0.075);
+    --shadow-md: rgba(0, 0, 0, 0.15);
+
+    /* Markdown Content */
+    --md-link: #007bff;
+    --md-blockquote-border: #007bff;
+    --md-blockquote-text: #6c757d;
+    --md-code-bg: #f8f9fa;
+    --md-table-header-bg: #f8f9fa;
+
+    /* Footer */
+    --footer-border: #dee2e6;
+    --footer-text: #6c757d;
+    --footer-link: #6c757d;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+    /* Brand Colors - muted for dark mode */
+    --sidebar-gradient-start: #1a1a1a;
+    --sidebar-gradient-end: #2d2d2d;
+    --brand-primary: #818cf8;
+    --brand-secondary: #a78bfa;
+    --brand-primary-hover: #6366f1;
+    --brand-secondary-hover: #8b5cf6;
+
+    /* Surface Colors */
+    --surface-page: #121212;
+    --surface-card: #1e1e1e;
+    --surface-card-alt: #2d2d2d;
+    --surface-overlay: rgba(255, 255, 255, 0.1);
+
+    /* Text Colors */
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --text-on-brand: #ffffff;
+    --text-on-brand-muted: rgba(255, 255, 255, 0.8);
+
+    /* Border Colors */
+    --border-default: #333333;
+    --border-light: #262626;
+    --border-emphasis: #60a5fa;
+    --sidebar-divider: rgba(255, 255, 255, 0.2);
+
+    /* Shadow Colors */
+    --shadow-sm: rgba(0, 0, 0, 0.3);
+    --shadow-md: rgba(0, 0, 0, 0.5);
+
+    /* Markdown Content */
+    --md-link: #60a5fa;
+    --md-blockquote-border: #60a5fa;
+    --md-blockquote-text: #94a3b8;
+    --md-code-bg: #2d2d2d;
+    --md-table-header-bg: #2d2d2d;
+
+    /* Footer */
+    --footer-border: #333333;
+    --footer-text: #94a3b8;
+    --footer-link: #94a3b8;
+}
+
+/* Mermaid container styling */
+.mermaid {
+    background-color: var(--surface-card);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin: 1rem 0;
+    text-align: center;
+}
+
+.mermaid svg {
+    max-width: 100%;
+    height: auto;
+}

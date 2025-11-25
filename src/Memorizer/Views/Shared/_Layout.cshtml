@@ -6,10 +6,15 @@
     <title>@ViewData["Title"] - Memorizer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <link id="prism-theme" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <!-- Theme variables must come before other custom CSS -->
+    <link href="~/css/theme-variables.css" rel="stylesheet">
     <link href="~/css/site.css" rel="stylesheet">
+    <link href="~/css/markdown-content.css" rel="stylesheet">
     <link href="~/css/tools.css" rel="stylesheet">
     @await RenderSectionAsync("Styles", required: false)
+    <!-- Theme switcher in head to prevent flash of unstyled content -->
+    <script src="~/js/theme-switcher.js"></script>
 </head>
 <body>
     <div class="container-fluid">
@@ -24,54 +29,64 @@
                         </h4>
                         <p class="text-white-50 small">Memory Management System</p>
                     </div>
-                    
+
                     <ul class="nav flex-column">
                         <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Index" ? "active" : "")" 
+                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Index" ? "active" : "")"
                                asp-controller="Home" asp-action="Index">
                                 <i class="fas fa-list me-2"></i>
                                 All Memories
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Create" ? "active" : "")" 
+                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Create" ? "active" : "")"
                                asp-controller="Home" asp-action="Create">
                                 <i class="fas fa-plus me-2"></i>
                                 Create Memory
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Tools" ? "active" : "")" 
+                            <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Tools" ? "active" : "")"
                                asp-controller="Tools" asp-action="Index">
                                 <i class="fas fa-tools me-2"></i>
                                 Tools
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Stats" ? "active" : "")" 
+                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Stats" ? "active" : "")"
                                asp-controller="Home" asp-action="Stats">
                                 <i class="fas fa-chart-bar me-2"></i>
                                 Statistics
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "McpConfig" ? "active" : "")" 
+                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "McpConfig" ? "active" : "")"
                                asp-controller="Home" asp-action="McpConfig">
                                 <i class="fas fa-cog me-2"></i>
                                 MCP Config
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Config" ? "active" : "")" 
+                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Config" ? "active" : "")"
                                asp-controller="Home" asp-action="Config">
                                 <i class="fas fa-cogs me-2"></i>
                                 System Config
                             </a>
                         </li>
                     </ul>
-                    
-                    <hr class="my-4" style="border-color: rgba(255, 255, 255, 0.3);">
-                    
+
+                    <!-- Theme Toggle -->
+                    <div class="d-flex justify-content-center align-items-center my-3">
+                        <i class="fas fa-sun text-white-50 me-2"></i>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch"
+                                   id="themeSwitch" onchange="ThemeSwitcher.toggle()">
+                        </div>
+                        <i class="fas fa-moon text-white-50 ms-1"></i>
+                    </div>
+
+                    <hr class="my-4" style="border-color: var(--sidebar-divider);">
+
                     <div class="text-center">
                         <small class="text-white-50">
                             <i class="fas fa-database me-1"></i>
@@ -86,7 +101,7 @@
                 <div class="py-4">
                     @RenderBody()
                 </div>
-                
+
                 <!-- Footer with attribution -->
                 <footer class="mt-auto py-3 border-top">
                     <div class="text-center">
@@ -118,4 +133,4 @@
     <script src="~/js/progress-stream.js"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
-</html> 
+</html>
