@@ -118,6 +118,128 @@ Remove a memory by its ID";
                 confidence: 1.0, cancellationToken: ct);
 
             _logger.LogInformation("System description memory created/updated successfully");
+
+            // Create a sample memory with Mermaid diagrams to demonstrate the feature
+            string mermaidDemoContent = @"# Memorizer Architecture Overview
+
+This document demonstrates Mermaid diagram support in Memorizer.
+
+## System Architecture
+
+The following diagram shows the high-level architecture of the Memorizer system:
+
+```mermaid
+flowchart TB
+    subgraph Client[""Client Layer""]
+        UI[Web UI]
+        MCP[MCP Server]
+        API[REST API]
+    end
+
+    subgraph Core[""Core Services""]
+        Storage[IStorage]
+        Embedding[EmbeddingService]
+        LLM[LlmService]
+    end
+
+    subgraph Actors[""Akka.NET Actors""]
+        TitleGen[TitleGenerationActor]
+        EmbedRegen[EmbeddingRegenerationActor]
+    end
+
+    subgraph External[""External Services""]
+        Ollama[Ollama]
+        PG[(PostgreSQL + pgvector)]
+    end
+
+    UI --> API
+    MCP --> Storage
+    API --> Storage
+    Storage --> PG
+    Storage --> Embedding
+    Embedding --> Ollama
+    LLM --> Ollama
+    TitleGen --> LLM
+    EmbedRegen --> Embedding
+```
+
+## Request Flow
+
+Here's how a typical memory storage request flows through the system:
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API Controller
+    participant S as IStorage
+    participant E as EmbeddingService
+    participant O as Ollama
+    participant DB as PostgreSQL
+
+    C->>A: POST /api/memory
+    A->>S: StoreMemory()
+    S->>E: GetEmbedding(content)
+    E->>O: Generate embedding
+    O-->>E: Vector [384 dims]
+    E-->>S: Embedding result
+    S->>E: GetEmbedding(metadata)
+    E->>O: Generate embedding
+    O-->>E: Vector [384 dims]
+    E-->>S: Embedding result
+    S->>DB: INSERT memory + embeddings
+    DB-->>S: Success
+    S-->>A: Memory ID
+    A-->>C: 201 Created
+```
+
+## Memory States
+
+Memories can be in different states during their lifecycle:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created: Store memory
+    Created --> Indexed: Embeddings generated
+    Indexed --> Updated: Edit content
+    Updated --> Indexed: Re-embed
+    Indexed --> Deleted: Delete request
+    Deleted --> [*]
+
+    note right of Created
+        Memory stored but
+        may need embedding
+    end note
+
+    note right of Indexed
+        Fully searchable
+        via vector similarity
+    end note
+```
+
+## Component Dependencies
+
+```mermaid
+graph LR
+    A[Memorizer.Web] --> B[Memorizer.Core]
+    B --> C[Npgsql]
+    B --> D[Pgvector]
+    B --> E[Akka.NET]
+    A --> F[Bootstrap 5]
+    A --> G[Mermaid.js]
+    A --> H[Prism.js]
+```
+
+This demonstrates how Mermaid diagrams render in both light and dark themes!";
+
+            await storage.StoreMemory(
+                type: "reference",
+                content: mermaidDemoContent,
+                source: "system",
+                title: "Memorizer Architecture with Mermaid Diagrams",
+                tags: ["architecture", "mermaid", "diagrams", "documentation", "demo"],
+                confidence: 1.0, cancellationToken: ct);
+
+            _logger.LogInformation("Mermaid diagram demo memory created successfully");
         }
         catch (Exception ex)
         {
