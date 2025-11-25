@@ -1,12 +1,10 @@
 using Configuration.Extensions.EnvironmentFile;
+using Memorizer;
 using Memorizer.Extensions;
-using Memorizer.Services;
 using Memorizer.Settings;
 using Memorizer.Telemetry;
 using PostgMem.Tools;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Npgsql;
-using OpenTelemetry.Logs;
 using OpenTelemetry.Resources;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -125,12 +123,15 @@ app.MapGet("/otel-test", () =>
     using var activity = TelemetryConfig.ActivitySource.StartActivity("test-activity");
     activity?.SetTag("test.tag", "test-value");
     activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Ok);
-    
+
     var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("OtelTest");
     logger.LogInformation("OTEL test endpoint called - this should appear in collector logs");
-    
+
     return Results.Ok(new { message = "OTEL test completed", activityId = activity?.Id });
 });
+
+// Map SSE progress endpoints for background job monitoring
+app.MapProgressEndpoints();
 
 // Configure default MVC routing
 app.MapControllerRoute(
