@@ -76,12 +76,13 @@
                     </ul>
 
                     <!-- Theme Toggle -->
-                    <div class="text-center my-3">
-                        <button class="btn btn-outline-light btn-sm theme-toggle-btn"
-                                onclick="ThemeSwitcher.toggle()"
-                                title="Toggle dark/light theme">
-                            <i id="themeIcon" class="fas fa-moon"></i>
-                        </button>
+                    <div class="d-flex justify-content-center align-items-center my-3">
+                        <i class="fas fa-sun text-white-50 me-2"></i>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch"
+                                   id="themeSwitch" onchange="ThemeSwitcher.toggle()">
+                        </div>
+                        <i class="fas fa-moon text-white-50 ms-1"></i>
                     </div>
 
                     <hr class="my-4" style="border-color: var(--sidebar-divider);">

@@ -42,7 +42,7 @@ const ThemeSwitcher = (function() {
      */
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
-        updateToggleButton(theme);
+        updateToggleSwitch(theme);
         updatePrismTheme(theme);
 
         // Re-render Mermaid diagrams if the module is available
@@ -52,13 +52,13 @@ const ThemeSwitcher = (function() {
     }
 
     /**
-     * Update the theme toggle button icon
+     * Update the theme toggle switch state
      */
-    function updateToggleButton(theme) {
-        const icon = document.getElementById('themeIcon');
-        if (icon) {
-            // Show sun icon in dark mode (to switch to light), moon icon in light mode (to switch to dark)
-            icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+    function updateToggleSwitch(theme) {
+        const themeSwitch = document.getElementById('themeSwitch');
+        if (themeSwitch) {
+            // Switch is checked when dark mode is active
+            themeSwitch.checked = theme === 'dark';
         }
     }
 
