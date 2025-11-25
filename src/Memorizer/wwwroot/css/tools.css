@@ -1,12 +1,15 @@
-/* Tools Page Specific Styling */
+/* =================================================================
+   TOOLS PAGE SPECIFIC STYLING
+   Uses CSS variables from theme-variables.css for theme support.
+   ================================================================= */
 
 /* Tools page card icon coloring */
 .tools-page .card .fas {
-    color: #0d6efd;
+    color: var(--brand-primary);
 }
 
 .tools-page .card-title .fas {
-    color: #495057;
+    color: var(--text-secondary);
 }
 
 .tools-page .btn .fas {
@@ -21,4 +24,13 @@
 .title-generation-page .breadcrumb {
     background-color: transparent;
     padding: 0;
-} 
+}
+
+/* Dark mode breadcrumb */
+[data-theme="dark"] .breadcrumb-item + .breadcrumb-item::before {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .breadcrumb-item.active {
+    color: var(--text-secondary);
+}

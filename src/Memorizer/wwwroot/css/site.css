@@ -1,13 +1,16 @@
-/* PostgMem Site-wide Styles */
+/* =================================================================
+   MEMORIZER SITE-WIDE STYLES
+   Uses CSS variables from theme-variables.css for theme support.
+   ================================================================= */
 
 /* Sidebar Styling */
 .sidebar {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--sidebar-gradient-start) 0%, var(--sidebar-gradient-end) 100%);
     min-height: 100vh;
 }
 
 .sidebar .nav-link {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--text-on-brand-muted);
     padding: 0.75rem 1.5rem;
     border-radius: 0.5rem;
     margin: 0.25rem 0;
@@ -16,45 +19,63 @@
 
 .sidebar .nav-link:hover,
 .sidebar .nav-link.active {
-    color: #fff;
-    background-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-on-brand);
+    background-color: var(--surface-overlay);
     transform: translateX(5px);
 }
 
 /* Content Area */
 .content-wrapper {
-    background-color: #f8f9fa;
+    background-color: var(--surface-page);
     min-height: 100vh;
+    color: var(--text-primary);
 }
 
 /* Card Styling */
 .card {
     border: none;
-    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    background-color: var(--surface-card);
+    box-shadow: 0 0.125rem 0.25rem var(--shadow-sm);
     border-radius: 0.75rem;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    box-shadow: 0 0.5rem 1rem var(--shadow-md);
 }
 
 .card-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
+    color: var(--text-on-brand);
     border-radius: 0.75rem 0.75rem 0 0 !important;
+}
+
+.card-body {
+    color: var(--text-primary);
+}
+
+.card-footer {
+    background-color: var(--surface-card);
+    border-top: 1px solid var(--border-light);
+}
+
+/* Light background card variant */
+.card.bg-light {
+    background-color: var(--surface-card-alt) !important;
 }
 
 /* Button Styling */
 .btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
     border: none;
+    color: var(--text-on-brand);
 }
 
 .btn-primary:hover {
-    background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+    background: linear-gradient(135deg, var(--brand-primary-hover) 0%, var(--brand-secondary-hover) 100%);
     transform: translateY(-1px);
+    color: var(--text-on-brand);
 }
 
 /* Memory Card Specific - kept for backwards compatibility */
@@ -64,7 +85,7 @@
 
 .memory-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    box-shadow: 0 0.5rem 1rem var(--shadow-md);
 }
 
 /* Utility Components */
@@ -78,4 +99,110 @@
 
 .copy-success {
     opacity: 1;
-} 
+}
+
+/* Form controls for dark mode */
+[data-theme="dark"] .form-control,
+[data-theme="dark"] .form-select {
+    background-color: var(--surface-card-alt);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .form-control:focus,
+[data-theme="dark"] .form-select:focus {
+    background-color: var(--surface-card-alt);
+    border-color: var(--brand-primary);
+    color: var(--text-primary);
+    box-shadow: 0 0 0 0.25rem rgba(129, 140, 248, 0.25);
+}
+
+[data-theme="dark"] .form-control::placeholder {
+    color: var(--text-muted);
+}
+
+/* Text muted override for dark mode */
+[data-theme="dark"] .text-muted {
+    color: var(--text-secondary) !important;
+}
+
+/* Footer styling */
+footer {
+    border-color: var(--footer-border) !important;
+}
+
+footer .text-muted,
+footer .text-muted a {
+    color: var(--footer-text) !important;
+}
+
+footer a {
+    color: var(--footer-link);
+}
+
+/* Table styling for dark mode */
+[data-theme="dark"] .table {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .table-bordered {
+    border-color: var(--border-default);
+}
+
+[data-theme="dark"] .table-bordered > :not(caption) > * > * {
+    border-color: var(--border-default);
+}
+
+/* Modal styling for dark mode */
+[data-theme="dark"] .modal-content {
+    background-color: var(--surface-card);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .modal-header,
+[data-theme="dark"] .modal-footer {
+    border-color: var(--border-default);
+}
+
+/* Dropdown styling for dark mode */
+[data-theme="dark"] .dropdown-menu {
+    background-color: var(--surface-card);
+    border-color: var(--border-default);
+}
+
+[data-theme="dark"] .dropdown-item {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .dropdown-item:hover,
+[data-theme="dark"] .dropdown-item:focus {
+    background-color: var(--surface-card-alt);
+    color: var(--text-primary);
+}
+
+/* List group for dark mode */
+[data-theme="dark"] .list-group-item {
+    background-color: var(--surface-card);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
+/* Alert styling for dark mode (keep functional colors) */
+[data-theme="dark"] .alert {
+    border-width: 1px;
+}
+
+/* Spinner styling */
+[data-theme="dark"] .spinner-border.text-primary {
+    color: var(--brand-primary) !important;
+}
+
+/* Theme toggle button */
+.theme-toggle-btn {
+    transition: all 0.3s ease;
+}
+
+.theme-toggle-btn:hover {
+    transform: scale(1.1);
+}
