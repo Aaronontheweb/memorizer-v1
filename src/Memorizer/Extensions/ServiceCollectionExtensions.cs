@@ -19,6 +19,7 @@ public static class ServiceCollectionExtensions
         services.AddStorage();
         services.AddServerSettings();
         services.AddCorsSettings();
+        services.AddVersioningSettings();
         if(initialize)
             services.AddHostedService<InitializationService>();
         services.AutoRegisterTypesInAssemblies(typeof(Storage).Assembly);
@@ -97,6 +98,11 @@ public static class ServiceCollectionExtensions
                 var embeddingRegenerationActorProps = resolver.Props<EmbeddingRegenerationActor>();
                 var embeddingRegenerationActor = system.ActorOf(embeddingRegenerationActorProps, "embedding-regeneration");
                 registry.Register<EmbeddingRegenerationActorKey>(embeddingRegenerationActor);
+
+                // Create and register the VersionPurgeActor
+                var versionPurgeActorProps = resolver.Props<VersionPurgeActor>();
+                var versionPurgeActor = system.ActorOf(versionPurgeActorProps, "version-purge");
+                registry.Register<VersionPurgeActorKey>(versionPurgeActor);
             });
 
             // TODO: Configure Akka.Persistence.Sql with PostgreSQL
@@ -138,6 +144,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CorsSettings>(sp =>
             sp.GetRequiredService<IConfiguration>().GetSection("Cors").Get<CorsSettings>() ??
             new CorsSettings());
+
+        return services;
+    }
+
+    public static IServiceCollection AddVersioningSettings(
+        this IServiceCollection services)
+    {
+        services.AddSingleton<VersioningSettings>(sp =>
+            sp.GetRequiredService<IConfiguration>().GetSection("Versioning").Get<VersioningSettings>() ??
+            new VersioningSettings());
 
         return services;
     }

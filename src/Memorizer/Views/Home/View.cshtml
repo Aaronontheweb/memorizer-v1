@@ -111,6 +111,40 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Version History section -->
+                    <div class="mt-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">
+                                        <i class="fas fa-history me-2"></i>
+                                        Version History
+                                    </h5>
+                                    <span class="badge bg-secondary" id="versionBadge">v1</span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="versionHistoryLoading" class="text-center py-3">
+                                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                        <span class="visually-hidden">Loading version history...</span>
+                                    </div>
+                                </div>
+                                <div id="versionHistoryContent" style="display:none;">
+                                    <div id="versionHistoryEmpty" style="display:none;">
+                                        <p class="text-muted mb-0">
+                                            <i class="fas fa-info-circle me-2"></i>
+                                            This memory has only one version (initial creation).
+                                        </p>
+                                    </div>
+                                    <div id="versionTimeline">
+                                        <!-- Version timeline will be inserted here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
                 <!-- Error state (hidden initially) -->
@@ -123,6 +157,35 @@
                         Back to List
                     </a>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Revert Confirmation Modal - placed outside card to avoid transform issues -->
+<div class="modal fade" id="revertModal" tabindex="-1" aria-labelledby="revertModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title" id="revertModalLabel">
+                    <i class="fas fa-undo me-2"></i>
+                    Confirm Revert
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to revert this memory to <strong>version <span id="revertTargetVersion"></span></strong>?</p>
+                <p class="text-muted small">
+                    This will restore all content, tags, title, and metadata from that version.
+                    A new version will be created recording this revert operation.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="confirmRevertBtn" onclick="confirmRevert()">
+                    <i class="fas fa-undo me-1"></i>
+                    Revert
+                </button>
             </div>
         </div>
     </div>
@@ -241,6 +304,18 @@ function populateMemoryView(memory) {
             displayRelatedMemories(memory.relationships);
         }
 
+        // Update version badge and track current version globally
+        const versionBadge = document.getElementById('versionBadge');
+        if (memory.currentVersion) {
+            currentVersion = memory.currentVersion;
+            if (versionBadge) {
+                versionBadge.textContent = `v${memory.currentVersion}`;
+            }
+        }
+
+        // Load version history
+        loadVersionHistory();
+
         console.log('All memory view fields populated successfully');
     } catch (error) {
         console.error('Error in populateMemoryView:', error);
@@ -353,6 +428,169 @@ function showError() {
     hideSpinner();
     document.getElementById('memoryContent').style.display = 'none';
     document.getElementById('errorState').style.display = 'block';
+}
+
+// =====================
+// Version History Functions
+// =====================
+
+let pendingRevertVersion = null;
+let versionHistory = [];
+let currentVersion = 1; // Track the current version of the memory
+
+async function loadVersionHistory() {
+    try {
+        const response = await fetch(`/api/memory/${memoryId}/versions`);
+        if (!response.ok) {
+            console.warn('Could not load version history');
+            document.getElementById('versionHistoryLoading').style.display = 'none';
+            document.getElementById('versionHistoryContent').style.display = 'block';
+            document.getElementById('versionHistoryEmpty').style.display = 'block';
+            return;
+        }
+
+        versionHistory = await response.json();
+        displayVersionHistory(versionHistory);
+    } catch (error) {
+        console.error('Error loading version history:', error);
+        document.getElementById('versionHistoryLoading').style.display = 'none';
+        document.getElementById('versionHistoryContent').style.display = 'block';
+        document.getElementById('versionHistoryEmpty').style.display = 'block';
+    }
+}
+
+function displayVersionHistory(versions) {
+    const loadingEl = document.getElementById('versionHistoryLoading');
+    const contentEl = document.getElementById('versionHistoryContent');
+    const emptyEl = document.getElementById('versionHistoryEmpty');
+    const timelineEl = document.getElementById('versionTimeline');
+
+    loadingEl.style.display = 'none';
+    contentEl.style.display = 'block';
+
+    // Show empty message only if there are truly no version snapshots
+    // (versions.length === 0 means no edits have been made yet)
+    if (!versions || versions.length === 0) {
+        emptyEl.style.display = 'block';
+        return;
+    }
+
+    timelineEl.innerHTML = '';
+
+    versions.forEach((version, index) => {
+        const isLatest = index === 0;
+        const hasPrevious = index < versions.length - 1;
+        const isCurrentVersion = version.versionNumber === currentVersion;
+
+        // Parse events to display what changed - use displayText from strongly-typed events
+        let changeDescription = 'Version snapshot';
+        if (version.events && version.events.length > 0) {
+            // Use displayText property which contains the rich change description
+            changeDescription = version.events.map(e => e.displayText || formatEventType(e.eventType)).join(', ');
+        }
+
+        // Version snapshots are historical - they represent the state BEFORE an edit
+        // The most recent snapshot (index 0) shows what was changed to become the current version
+        const versionItem = document.createElement('div');
+        versionItem.className = 'version-item d-flex align-items-start mb-3 pb-3 border-bottom';
+        versionItem.innerHTML = `
+            <div class="version-marker me-3">
+                <span class="badge ${isCurrentVersion ? 'bg-primary' : 'bg-secondary'} rounded-pill">v${version.versionNumber}${isCurrentVersion ? ' (current)' : ''}</span>
+            </div>
+            <div class="version-content flex-grow-1">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <strong>Version ${version.versionNumber}</strong>${isCurrentVersion ? ' <span class="badge bg-success">Current</span>' : ''}
+                        <br>
+                        <small class="text-muted">
+                            <i class="fas fa-clock me-1"></i>
+                            ${formatDateTime(version.versionedAt)}
+                        </small>
+                        <br>
+                        <small class="text-info">
+                            <i class="fas fa-pen me-1"></i>
+                            ${escapeHtml(changeDescription)}
+                        </small>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        <a href="/ui/view/${memoryId}/version/${version.versionNumber}" class="btn btn-outline-info btn-sm" title="View this version">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                        ${hasPrevious ? `
+                        <a href="/ui/view/${memoryId}/compare/${versions[index + 1].versionNumber}/${version.versionNumber}" class="btn btn-outline-primary btn-sm" title="Compare with previous">
+                            <i class="fas fa-code-compare"></i>
+                        </a>
+                        ` : ''}
+                        ${!isCurrentVersion ? `
+                        <button class="btn btn-outline-warning btn-sm" onclick="promptRevert(${version.versionNumber})" title="Revert to this version">
+                            <i class="fas fa-undo"></i>
+                        </button>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+        timelineEl.appendChild(versionItem);
+    });
+}
+
+function formatEventType(eventType) {
+    const mappings = {
+        // New strongly-typed event types
+        'memory_created': 'Memory created',
+        'content_updated': 'Content updated',
+        'metadata_updated': 'Metadata updated',
+        'relationship_added': 'Relationship added',
+        'relationship_removed': 'Relationship removed',
+        'memory_reverted': 'Reverted',
+        // Legacy event types (for backwards compatibility)
+        'text_changed': 'Content updated',
+        'title_changed': 'Title changed',
+        'tags_changed': 'Tags modified',
+        'type_changed': 'Type changed',
+        'confidence_changed': 'Confidence updated',
+        'source_changed': 'Source changed',
+        'created': 'Created',
+        'reverted': 'Reverted',
+        'update': 'Updated'
+    };
+    return mappings[eventType] || eventType;
+}
+
+function promptRevert(versionNumber) {
+    pendingRevertVersion = versionNumber;
+    document.getElementById('revertTargetVersion').textContent = versionNumber;
+    const modalEl = document.getElementById('revertModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+}
+
+async function confirmRevert() {
+    if (!pendingRevertVersion) return;
+
+    const btn = document.getElementById('confirmRevertBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Reverting...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(`/api/memory/${memoryId}/versions/${pendingRevertVersion}/revert`, {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to revert');
+        }
+
+        // Close modal and reload page
+        bootstrap.Modal.getInstance(document.getElementById('revertModal')).hide();
+        window.location.reload();
+    } catch (error) {
+        console.error('Error reverting:', error);
+        alert('Failed to revert to version. Please try again.');
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
 }
 </script>
 }
