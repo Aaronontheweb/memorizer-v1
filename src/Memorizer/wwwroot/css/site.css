@@ -371,12 +371,38 @@ footer a:hover {
     background-color: var(--border-default);
 }
 
-/* Similar memory checkbox alignment */
+/* Similar memory checkbox alignment and visibility */
 .similar-memory-checkbox {
     margin-top: 0.25rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid #6c757d;
+    cursor: pointer;
+}
+
+.similar-memory-checkbox:checked {
+    background-color: var(--brand-primary);
+    border-color: var(--brand-primary);
 }
 
 /* Border color in dark mode for similar items */
 [data-theme="dark"] .similar-memory-item {
     border-color: var(--border-default) !important;
+}
+
+/* Light mode slider track - better contrast */
+.form-range::-webkit-slider-runnable-track {
+    background-color: #dee2e6;
+}
+
+.form-range::-moz-range-track {
+    background-color: #dee2e6;
+}
+
+.form-range::-webkit-slider-thumb {
+    background-color: var(--brand-primary);
+}
+
+.form-range::-moz-range-thumb {
+    background-color: var(--brand-primary);
 }
