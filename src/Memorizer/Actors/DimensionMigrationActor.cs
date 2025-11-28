@@ -127,11 +127,25 @@ public sealed class DimensionMigrationActor : ReceiveActor
             _jobManager?.RemoveSubscriber(msg.SubscriberId);
         });
 
-        // Handle progress updates from EmbeddingRegenerationActor - forward to our subscribers
-        Receive<EmbeddingRegenerationProgress>(HandleRegenerationProgress);
+        // Handle completion messages from background progress consumer
+        // These messages are sent to Self from Task.Run to ensure Become() is called on the actor's mailbox thread
+        ReceiveAsync<RegenerationProgressCompleted>(async msg =>
+        {
+            await HandleRegenerationCompleted(msg.Progress);
+        });
 
-        // Handle completion from EmbeddingRegenerationActor
-        ReceiveAsync<BatchEmbeddingRegenerationCompleted>(HandleRegenerationCompleted);
+        Receive<RegenerationProgressFailed>(msg =>
+        {
+            _logger.Error("Regeneration progress stream failed: {0}", msg.ErrorMessage);
+            _jobManager?.Fail(msg.ErrorMessage);
+
+            // Clean up and return to idle - must be called from mailbox thread
+            _ = ReleaseDistributedLock();
+            _currentMigrationId = null;
+            _currentMigration = null;
+            _jobManager = null;
+            Become(Idle);
+        });
     }
 
     private async Task HandleStartMigration(StartDimensionMigration msg)
@@ -201,12 +215,23 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 msg.RequestedBy);
 
             _startTime = DateTime.UtcNow;
+
+            // Perform schema change BEFORE replying - if this fails, we want to tell the sender
+            await PerformSchemaChange(_newDimensions);
+
+            // Schema change succeeded - now switch to Running state and reply
             Become(Running);
 
-            // Send initial status
+            // Record schema change step as complete
+            _jobManager.RecordSuccess();
+
+            // Update migration status
+            await UpdateMigrationStatus(_currentMigrationId.Value, "regenerating");
+
+            // Send status AFTER schema change succeeds - this ensures errors are properly reported
             sender.Tell(new DimensionMigrationStatus(
                 IsRunning: true,
-                Status: "Running - changing schema",
+                Status: "Running - regenerating embeddings",
                 OldDimensions: _oldDimensions,
                 NewDimensions: _newDimensions,
                 OldModel: _oldModel,
@@ -217,24 +242,14 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 RequestedBy: msg.RequestedBy
             ));
 
-            // Perform schema change
-            await PerformSchemaChange(_newDimensions);
-
-            // Record schema change step as complete
-            _jobManager.RecordSuccess();
-
-            // Update migration status
-            await UpdateMigrationStatus(_currentMigrationId.Value, "regenerating");
-
-            // Subscribe to progress and completion events from EmbeddingRegenerationActor
-            Context.System.EventStream.Subscribe(Self, typeof(EmbeddingRegenerationProgress));
-            Context.System.EventStream.Subscribe(Self, typeof(BatchEmbeddingRegenerationCompleted));
-
             // Tell EmbeddingRegenerationActor to regenerate all embeddings
             _logger.Info("Schema change complete, triggering embedding regeneration");
             _embeddingRegenerationActor.ActorRef.Tell(
                 new RegenerateAllEmbeddings(PageSize: 100, RequestedBy: $"dimension-migration-{_currentMigrationId}"),
                 Self);
+
+            // Subscribe to the EmbeddingRegenerationActor's progress stream and forward to our subscribers
+            await SubscribeToRegenerationProgress();
         }
         catch (Exception ex)
         {
@@ -311,18 +326,28 @@ public sealed class DimensionMigrationActor : ReceiveActor
 
             Become(Running);
 
+            // Get total count for progress tracking
+            var totalCount = await GetTotalMemoryCount();
+
+            // Create job manager for progress tracking - use total memories + 1 for schema change step
+            _jobManager = new ProgressJobManager(_logger, _materializer);
+            _jobManager.StartJob(totalCount + 1, msg.RequestedBy);
+
             // If schema was already changed, just trigger regeneration
             if (migration.Status is "schema_changed" or "regenerating")
             {
                 _logger.Info("Schema already changed, resuming embedding regeneration");
                 await UpdateMigrationStatus(_currentMigrationId.Value, "regenerating");
 
-                Context.System.EventStream.Subscribe(Self, typeof(EmbeddingRegenerationProgress));
-                Context.System.EventStream.Subscribe(Self, typeof(BatchEmbeddingRegenerationCompleted));
+                // Schema change already done, record it as complete
+                _jobManager.RecordSuccess();
 
                 _embeddingRegenerationActor.ActorRef.Tell(
                     new RegenerateAllEmbeddings(PageSize: 100, RequestedBy: $"dimension-migration-resume-{_currentMigrationId}"),
                     Self);
+
+                // Subscribe to the EmbeddingRegenerationActor's progress stream
+                await SubscribeToRegenerationProgress();
             }
             else
             {
@@ -330,12 +355,15 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 await PerformSchemaChange(_newDimensions);
                 await UpdateMigrationStatus(_currentMigrationId.Value, "regenerating");
 
-                Context.System.EventStream.Subscribe(Self, typeof(EmbeddingRegenerationProgress));
-                Context.System.EventStream.Subscribe(Self, typeof(BatchEmbeddingRegenerationCompleted));
+                // Schema change complete, record it as successful
+                _jobManager.RecordSuccess();
 
                 _embeddingRegenerationActor.ActorRef.Tell(
                     new RegenerateAllEmbeddings(PageSize: 100, RequestedBy: $"dimension-migration-{_currentMigrationId}"),
                     Self);
+
+                // Subscribe to the EmbeddingRegenerationActor's progress stream
+                await SubscribeToRegenerationProgress();
             }
 
             sender.Tell(CreateCurrentStatus("Resumed"));
@@ -356,57 +384,92 @@ public sealed class DimensionMigrationActor : ReceiveActor
         }
     }
 
-    private void HandleRegenerationProgress(EmbeddingRegenerationProgress msg)
+    /// <summary>
+    /// Subscribe to the EmbeddingRegenerationActor's progress stream and forward events to our subscribers.
+    /// This properly piggybacks on the regeneration actor's progress using its standard subscription mechanism.
+    /// </summary>
+    private async Task SubscribeToRegenerationProgress()
     {
-        // Only process progress for our migration's regeneration request
-        if (!msg.RequestedBy.Contains(_currentMigrationId?.ToString() ?? "no-migration"))
-        {
-            return;
-        }
-
-        // Forward progress to our job manager for SSE subscribers
-        // Add 1 to account for the schema change step we already completed
-        if (_jobManager != null)
-        {
-            // Update our job manager with the regeneration progress
-            // The +1 accounts for the schema change step
-            var totalWithSchema = msg.TotalItems + 1;
-            var processedWithSchema = msg.ProcessedCount + 1; // +1 for schema step
-
-            _jobManager.ReportProgress(
-                processedCount: processedWithSchema,
-                totalItems: totalWithSchema,
-                successCount: msg.SuccessCount + 1, // +1 for successful schema change
-                failureCount: msg.FailureCount,
-                statusMessage: $"Regenerating embeddings: {msg.ProcessedCount}/{msg.TotalItems} " +
-                              $"({msg.SuccessCount} successful, {msg.FailureCount} failed)");
-        }
-    }
-
-    private async Task HandleRegenerationCompleted(BatchEmbeddingRegenerationCompleted msg)
-    {
-        // Check if this completion is for our migration
-        if (!msg.RequestedBy.Contains(_currentMigrationId?.ToString() ?? "no-migration"))
-        {
-            _logger.Debug("Received BatchEmbeddingRegenerationCompleted for different request, ignoring");
-            return;
-        }
-
-        _logger.Info("Embedding regeneration completed: {0}/{1} successful, {2} failed",
-            msg.TotalSuccessful, msg.TotalProcessed, msg.FailedMemoryIds.Count);
+        var subscriberId = $"dimension-migration-{_currentMigrationId}";
+        var self = Self; // Capture Self for use in background task
 
         try
         {
+            // Subscribe to the EmbeddingRegenerationActor's progress stream
+            var subscription = await _embeddingRegenerationActor.ActorRef.Ask<ProgressSubscription>(
+                new SubscribeToProgress(subscriberId),
+                TimeSpan.FromSeconds(10));
+
+            // Consume the channel and forward progress to our job manager
+            // IMPORTANT: This runs on a background thread, so we MUST NOT call Become() or any actor
+            // context methods directly. Instead, we send messages to Self to handle state transitions
+            // on the actor's mailbox thread.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var progress in subscription.Reader.ReadAllAsync())
+                    {
+                        // Forward progress to our job manager for SSE subscribers
+                        // Add 1 to account for the schema change step we already completed
+                        if (_jobManager != null)
+                        {
+                            var totalWithSchema = progress.TotalItems + 1;
+                            var processedWithSchema = progress.TotalProcessed + 1; // +1 for schema step
+
+                            _jobManager.ReportProgress(
+                                processedCount: processedWithSchema,
+                                totalItems: totalWithSchema,
+                                successCount: progress.TotalSuccessful + 1, // +1 for successful schema change
+                                failureCount: progress.TotalFailed,
+                                statusMessage: $"Regenerating embeddings: {progress.TotalProcessed}/{progress.TotalItems} " +
+                                              $"({progress.TotalSuccessful} successful, {progress.TotalFailed} failed)");
+                        }
+
+                        // Check if the regeneration completed
+                        if (progress.IsCompleted)
+                        {
+                            // Send message to self instead of calling async method directly
+                            // This ensures Become(Idle) is called on the actor's mailbox thread
+                            self.Tell(new RegenerationProgressCompleted(progress));
+                            break;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "Error consuming regeneration progress stream: {0}", ex.Message);
+                    // Send failure message to self for proper cleanup on mailbox thread
+                    self.Tell(new RegenerationProgressFailed(ex.Message));
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Failed to subscribe to regeneration progress: {0}", ex.Message);
+        }
+    }
+
+    private async Task HandleRegenerationCompleted(ProgressEvent progress)
+    {
+        _logger.Info("Embedding regeneration completed: {0}/{1} successful, {2} failed",
+            progress.TotalSuccessful, progress.TotalProcessed, progress.TotalFailed);
+
+        try
+        {
+            // Restore indexes and NOT NULL constraints now that all embeddings are regenerated
+            await RestoreConstraintsAndIndexes(_newDimensions);
+
             // Update embedding_config with new model/dimensions
             await _dimensionService.UpdateActiveConfigAsync(_embeddingSettings.Model, _newDimensions);
 
             // Complete the migration record
             await CompleteMigration(
                 _currentMigrationId!.Value,
-                msg.TotalProcessed,
-                msg.TotalSuccessful,
-                msg.FailedMemoryIds.Count,
-                msg.FailedMemoryIds);
+                progress.TotalProcessed,
+                progress.TotalSuccessful,
+                progress.TotalFailed,
+                progress.FailedIds ?? []);
 
             // Publish completion event
             var migration = await GetMigrationRecord(_currentMigrationId.Value);
@@ -416,9 +479,9 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 OldDimensions: migration?.OldDimensions ?? 0,
                 NewModel: _embeddingSettings.Model,
                 NewDimensions: _newDimensions,
-                TotalProcessed: msg.TotalProcessed,
-                Successful: msg.TotalSuccessful,
-                Failed: msg.FailedMemoryIds.Count,
+                TotalProcessed: progress.TotalProcessed,
+                Successful: progress.TotalSuccessful,
+                Failed: progress.TotalFailed,
                 Duration: DateTime.UtcNow - _startTime,
                 RequestedBy: _requestedBy
             ));
@@ -435,8 +498,6 @@ public sealed class DimensionMigrationActor : ReceiveActor
         }
         finally
         {
-            Context.System.EventStream.Unsubscribe(Self, typeof(EmbeddingRegenerationProgress));
-            Context.System.EventStream.Unsubscribe(Self, typeof(BatchEmbeddingRegenerationCompleted));
             await ReleaseDistributedLock();
             _currentMigrationId = null;
             _currentMigration = null;
@@ -656,11 +717,36 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            // ALTER columns - use USING NULL to clear existing values (we'll regenerate them)
+            // Drop NOT NULL constraints so we can set embeddings to NULL during migration
+            _logger.Debug("Dropping NOT NULL constraints on embedding columns");
+
+            await using (var cmd = new NpgsqlCommand(
+                "ALTER TABLE memories ALTER COLUMN embedding DROP NOT NULL", conn, transaction))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await using (var cmd = new NpgsqlCommand(
+                "ALTER TABLE memories ALTER COLUMN embedding_metadata DROP NOT NULL", conn, transaction))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // Clear existing embeddings - pgvector can't ALTER TYPE with existing data
+            _logger.Debug("Clearing existing embeddings before schema change");
+
+            await using (var cmd = new NpgsqlCommand(
+                "UPDATE memories SET embedding = NULL, embedding_metadata = NULL",
+                conn, transaction))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // Now ALTER columns - they're all NULL so this will succeed
             _logger.Debug("Altering embedding column to VECTOR({0})", newDimensions);
 
             await using (var cmd = new NpgsqlCommand(
-                $"ALTER TABLE memories ALTER COLUMN embedding TYPE VECTOR({newDimensions}) USING NULL::VECTOR({newDimensions})",
+                $"ALTER TABLE memories ALTER COLUMN embedding TYPE VECTOR({newDimensions})",
                 conn, transaction))
             {
                 await cmd.ExecuteNonQueryAsync();
@@ -669,32 +755,19 @@ public sealed class DimensionMigrationActor : ReceiveActor
             _logger.Debug("Altering embedding_metadata column to VECTOR({0})", newDimensions);
 
             await using (var cmd = new NpgsqlCommand(
-                $"ALTER TABLE memories ALTER COLUMN embedding_metadata TYPE VECTOR({newDimensions}) USING NULL::VECTOR({newDimensions})",
+                $"ALTER TABLE memories ALTER COLUMN embedding_metadata TYPE VECTOR({newDimensions})",
                 conn, transaction))
             {
                 await cmd.ExecuteNonQueryAsync();
             }
 
-            // Recreate indexes
-            _logger.Debug("Recreating embedding indexes");
-
-            await using (var cmd = new NpgsqlCommand(
-                $"CREATE INDEX idx_memories_embedding_cosine ON memories USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)",
-                conn, transaction))
-            {
-                await cmd.ExecuteNonQueryAsync();
-            }
-
-            await using (var cmd = new NpgsqlCommand(
-                $"CREATE INDEX idx_memories_embedding_metadata_cosine ON memories USING ivfflat (embedding_metadata vector_cosine_ops) WITH (lists = 100)",
-                conn, transaction))
-            {
-                await cmd.ExecuteNonQueryAsync();
-            }
+            // NOTE: We don't recreate indexes or NOT NULL constraints here.
+            // They will be restored after embedding regeneration completes successfully.
+            // This avoids index maintenance overhead during bulk updates.
 
             await transaction.CommitAsync();
 
-            _logger.Info("Schema change completed successfully");
+            _logger.Info("Schema change completed successfully (indexes and constraints will be restored after regeneration)");
 
             // Update migration status
             if (_currentMigrationId.HasValue)
@@ -705,6 +778,63 @@ public sealed class DimensionMigrationActor : ReceiveActor
         catch
         {
             await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Restore indexes and NOT NULL constraints after embedding regeneration completes.
+    /// Called from HandleRegenerationCompleted.
+    /// </summary>
+    private async Task RestoreConstraintsAndIndexes(int dimensions)
+    {
+        _logger.Info("Restoring indexes and NOT NULL constraints after regeneration");
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var transaction = await conn.BeginTransactionAsync();
+
+        try
+        {
+            // Restore NOT NULL constraints
+            _logger.Debug("Restoring NOT NULL constraints on embedding columns");
+
+            await using (var cmd = new NpgsqlCommand(
+                "ALTER TABLE memories ALTER COLUMN embedding SET NOT NULL", conn, transaction))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await using (var cmd = new NpgsqlCommand(
+                "ALTER TABLE memories ALTER COLUMN embedding_metadata SET NOT NULL", conn, transaction))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // Recreate indexes
+            _logger.Debug("Recreating embedding indexes");
+
+            await using (var cmd = new NpgsqlCommand(
+                $"CREATE INDEX IF NOT EXISTS idx_memories_embedding_cosine ON memories USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)",
+                conn, transaction))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await using (var cmd = new NpgsqlCommand(
+                $"CREATE INDEX IF NOT EXISTS idx_memories_embedding_metadata_cosine ON memories USING ivfflat (embedding_metadata vector_cosine_ops) WITH (lists = 100)",
+                conn, transaction))
+            {
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await transaction.CommitAsync();
+
+            _logger.Info("Indexes and constraints restored successfully");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.Error(ex, "Failed to restore indexes and constraints: {0}", ex.Message);
             throw;
         }
     }

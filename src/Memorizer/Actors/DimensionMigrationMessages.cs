@@ -108,6 +108,17 @@ public sealed record DimensionMigrationFailed(
 );
 
 /// <summary>
+/// Internal message sent from background progress consumer to trigger completion handling
+/// on the actor's mailbox thread.
+/// </summary>
+internal sealed record RegenerationProgressCompleted(ProgressEvent Progress);
+
+/// <summary>
+/// Internal message sent when progress consumption fails.
+/// </summary>
+internal sealed record RegenerationProgressFailed(string ErrorMessage);
+
+/// <summary>
 /// Actor registry key for DimensionMigrationActor.
 /// </summary>
 public sealed class DimensionMigrationActorKey;
