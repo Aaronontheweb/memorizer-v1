@@ -2,6 +2,7 @@ using Akka.Actor;
 using Akka.Event;
 using Akka.Streams;
 using Memorizer.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Pgvector;
 
 namespace Memorizer.Actors;
@@ -14,8 +15,7 @@ namespace Memorizer.Actors;
 /// </summary>
 public sealed class EmbeddingRegenerationActor : ReceiveActor
 {
-    private readonly IStorage _storage;
-    private readonly IEmbeddingService _embeddingService;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILoggingAdapter _logger;
     private readonly IMaterializer _materializer;
 
@@ -27,12 +27,12 @@ public sealed class EmbeddingRegenerationActor : ReceiveActor
     private int _pageSize;
     private int _outstandingOnCurrentPage;
 
-    public EmbeddingRegenerationActor(
-        IStorage storage,
-        IEmbeddingService embeddingService)
+    // Current scope for the running job
+    private IServiceScope? _currentScope;
+
+    public EmbeddingRegenerationActor(IServiceProvider serviceProvider)
     {
-        _storage = storage;
-        _embeddingService = embeddingService;
+        _serviceProvider = serviceProvider;
         _logger = Context.GetLogger();
         _materializer = Context.System.Materializer();
 
@@ -118,8 +118,12 @@ public sealed class EmbeddingRegenerationActor : ReceiveActor
 
         try
         {
+            // Create a scope for the duration of this job
+            _currentScope = _serviceProvider.CreateScope();
+            var storage = _currentScope.ServiceProvider.GetRequiredService<IStorage>();
+
             // Get total count first to size the job
-            var (_, totalCount) = await _storage.GetMemoriesPaginated(1, 1);
+            var (_, totalCount) = await storage.GetMemoriesPaginated(1, 1);
 
             // Create job manager and start job
             _jobManager = new ProgressJobManager(_logger, _materializer);
@@ -170,17 +174,20 @@ public sealed class EmbeddingRegenerationActor : ReceiveActor
             ));
             _jobManager?.Fail(ex.Message);
             _jobManager = null;
+            _currentScope?.Dispose();
+            _currentScope = null;
             Become(Idle);
         }
     }
 
     private async Task ProcessNextPage()
     {
-        if (_jobManager == null) return;
+        if (_jobManager == null || _currentScope == null) return;
 
         try
         {
-            var (memories, _) = await _storage.GetMemoriesPaginated(_currentPage, _pageSize);
+            var storage = _currentScope.ServiceProvider.GetRequiredService<IStorage>();
+            var (memories, _) = await storage.GetMemoriesPaginated(_currentPage, _pageSize);
 
             if (memories.Count == 0)
             {
@@ -210,28 +217,33 @@ public sealed class EmbeddingRegenerationActor : ReceiveActor
             _logger.Error(ex, "Error fetching page {0}: {1}", _currentPage, ex.Message);
             _jobManager.Fail($"Error fetching page {_currentPage}: {ex.Message}");
             _jobManager = null;
+            _currentScope?.Dispose();
+            _currentScope = null;
             Become(Idle);
         }
     }
 
     private async Task HandleRegenerateEmbeddingsForMemory(RegenerateEmbeddingsForMemory msg)
     {
-        if (_jobManager == null) return;
+        if (_jobManager == null || _currentScope == null) return;
 
         try
         {
+            var storage = _currentScope.ServiceProvider.GetRequiredService<IStorage>();
+            var embeddingService = _currentScope.ServiceProvider.GetRequiredService<IEmbeddingService>();
+
             // Generate content embedding (title + text)
             var contentText = CreateContentText(msg.Title, msg.Text);
-            var contentEmbeddingArray = await _embeddingService.Generate(contentText);
+            var contentEmbeddingArray = await embeddingService.Generate(contentText);
             var contentEmbedding = new Vector(contentEmbeddingArray);
 
             // Generate metadata embedding (title + tags)
             var metadataText = CreateMetadataText(msg.Title, msg.Tags);
-            var metadataEmbeddingArray = await _embeddingService.Generate(metadataText);
+            var metadataEmbeddingArray = await embeddingService.Generate(metadataText);
             var metadataEmbedding = new Vector(metadataEmbeddingArray);
 
             // Update both embeddings in a single DB call
-            await _storage.UpdateMemoryEmbeddings(msg.MemoryId, contentEmbedding, metadataEmbedding);
+            await storage.UpdateMemoryEmbeddings(msg.MemoryId, contentEmbedding, metadataEmbedding);
 
             _jobManager.RecordSuccess();
             _logger.Debug("Successfully regenerated embeddings for memory {0}", msg.MemoryId);
@@ -285,6 +297,10 @@ public sealed class EmbeddingRegenerationActor : ReceiveActor
         // Complete the job - this broadcasts final event and auto-completes all subscriber streams
         _jobManager?.Complete();
         _jobManager = null;
+
+        // Dispose the scope
+        _currentScope?.Dispose();
+        _currentScope = null;
 
         Become(Idle);
     }
@@ -360,8 +376,4 @@ public sealed class EmbeddingRegenerationActor : ReceiveActor
         return string.Join(" ", parts);
     }
 
-    public static Props Props(IStorage storage, IEmbeddingService embeddingService)
-    {
-        return Akka.Actor.Props.Create(() => new EmbeddingRegenerationActor(storage, embeddingService));
-    }
 }

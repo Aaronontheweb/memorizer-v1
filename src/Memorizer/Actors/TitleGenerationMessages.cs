@@ -1,3 +1,5 @@
+using Memorizer.Models;
+
 namespace Memorizer.Actors;
 
 /// <summary>
@@ -16,7 +18,7 @@ public sealed record GenerateTitlesForUntitled : ITitleGenerationMessage
     /// Maximum number of memories to process in this batch
     /// </summary>
     public int BatchSize { get; init; } = 50;
-    
+
     /// <summary>
     /// User who initiated the request
     /// </summary>
@@ -31,23 +33,23 @@ public sealed record GenerateTitleForMemory : ITitleGenerationMessage
     /// <summary>
     /// ID of the memory to generate a title for
     /// </summary>
-    public required Guid MemoryId { get; init; }
-    
+    public required MemoryId MemoryId { get; init; }
+
     /// <summary>
     /// Content of the memory (for performance, avoid re-fetch)
     /// </summary>
     public required string Content { get; init; }
-    
+
     /// <summary>
     /// Type of the memory
     /// </summary>
     public required string Type { get; init; }
-    
+
     /// <summary>
     /// Existing tags for context
     /// </summary>
     public string[]? Tags { get; init; }
-    
+
     /// <summary>
     /// User who initiated the request
     /// </summary>
@@ -62,13 +64,13 @@ public sealed record TitleGenerationCompleted : ITitleGenerationMessage
     /// <summary>
     /// ID of the memory that received a title
     /// </summary>
-    public required Guid MemoryId { get; init; }
-    
+    public required MemoryId MemoryId { get; init; }
+
     /// <summary>
     /// The generated title
     /// </summary>
     public required string GeneratedTitle { get; init; }
-    
+
     /// <summary>
     /// User who initiated the request
     /// </summary>
@@ -83,18 +85,18 @@ public sealed record TitleGenerationFailed : ITitleGenerationMessage
     /// <summary>
     /// ID of the memory that failed title generation
     /// </summary>
-    public required Guid MemoryId { get; init; }
-    
+    public required MemoryId MemoryId { get; init; }
+
     /// <summary>
     /// Error that occurred during title generation
     /// </summary>
     public required string ErrorMessage { get; init; }
-    
+
     /// <summary>
     /// User who initiated the request
     /// </summary>
     public required string RequestedBy { get; init; }
-    
+
     /// <summary>
     /// The exception that caused the failure, if any
     /// </summary>
@@ -115,7 +117,7 @@ public record BatchTitleGenerationCompleted(
     DateTime StartTime,
     int TotalProcessed,
     int TotalSuccessful,
-    List<Guid> FailedMemoryIds,
+    List<MemoryId> FailedMemoryIds,
     TimeSpan Duration
 );
 
@@ -134,7 +136,7 @@ public record TitleGenerationStatus(
     int? TotalSuccessful = null,
     int? TotalFailed = null,
     int? Outstanding = null,
-    List<Guid>? FailedMemoryIds = null,
+    List<MemoryId>? FailedMemoryIds = null,
     DateTime? StartTime = null,
     TimeSpan? Duration = null,
     string? RequestedBy = null

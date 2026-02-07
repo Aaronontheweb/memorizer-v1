@@ -1,0 +1,581 @@
+@{
+    ViewData["Title"] = "Workspace Details";
+}
+
+<div id="loadingSpinner" class="d-flex justify-content-center py-5">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+
+<div id="workspaceContent" style="display: none;">
+    <!-- Header -->
+    <div class="mb-4">
+        <a href="/workspaces" class="btn btn-link ps-0">
+            <i class="fas fa-arrow-left me-2"></i>Back to Workspaces
+        </a>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h2>
+                <i class="fas fa-folder me-2 text-primary" id="workspaceIcon"></i>
+                <span id="workspaceName"></span>
+                <span id="systemBadge" class="badge bg-secondary ms-2" style="display: none;">System</span>
+            </h2>
+            <p class="lead text-muted" id="workspaceDescription"></p>
+            <small class="text-muted">
+                <span id="workspaceMeta"></span>
+            </small>
+        </div>
+        <div id="editButton">
+            <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editWorkspaceModal">
+                <i class="fas fa-edit me-2"></i>Edit
+            </button>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Child Workspaces Section -->
+    <div class="mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4>
+                <i class="fas fa-folder-tree me-2"></i>
+                Nested Workspaces <span class="badge bg-secondary" id="childWorkspaceCount">0</span>
+            </h4>
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createChildWorkspaceModal" id="createChildWorkspaceBtn">
+                <i class="fas fa-plus me-2"></i>New Nested Workspace
+            </button>
+        </div>
+        <div id="childWorkspacesList"></div>
+        <div id="noChildWorkspaces" class="text-center py-4 text-muted" style="display: none;">
+            <i class="fas fa-folder-open fa-2x mb-2"></i>
+            <p>No nested workspaces. Create one to organize related areas of work.</p>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Projects Section -->
+    <div class="mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4>
+                <i class="fas fa-tasks me-2"></i>
+                Projects <span class="badge bg-secondary" id="projectCount">0</span>
+            </h4>
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createProjectModal">
+                <i class="fas fa-plus me-2"></i>New Project
+            </button>
+        </div>
+        <div id="projectsList"></div>
+        <div id="noProjects" class="text-center py-4 text-muted" style="display: none;">
+            <i class="fas fa-inbox fa-2x mb-2"></i>
+            <p>No projects yet. Create one to start organizing memories.</p>
+        </div>
+    </div>
+
+    <hr>
+
+    <!-- Memories Section -->
+    <div class="mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4>
+                <i class="fas fa-brain me-2"></i>
+                Memories <span class="badge bg-secondary" id="memoryCount">0</span>
+            </h4>
+            <div class="d-flex align-items-center gap-3">
+                <div class="form-check form-switch" id="showArchivedContainer" style="display:none;">
+                    <input class="form-check-input" type="checkbox" id="showArchivedMemories">
+                    <label class="form-check-label archived-toggle-label" for="showArchivedMemories">
+                        Show Archived
+                    </label>
+                </div>
+                <a id="viewAllMemoriesLink" href="#" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-arrow-right me-2"></i>View All
+                </a>
+            </div>
+        </div>
+        <p class="text-muted small">Recent memories directly in this workspace (not in projects):</p>
+        <div id="memoriesList"></div>
+        <div id="noMemories" class="text-center py-3 text-muted" style="display: none;">
+            <p class="mb-0">No memories in this workspace yet.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Error State -->
+<div id="errorState" style="display: none;" class="text-center py-5">
+    <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+    <h5 class="text-muted">Workspace Not Found</h5>
+    <p class="text-muted">The workspace you're looking for could not be found.</p>
+    <a href="/workspaces" class="btn btn-primary">
+        <i class="fas fa-arrow-left me-2"></i>Back to Workspaces
+    </a>
+</div>
+
+<!-- Edit Workspace Modal -->
+<div class="modal fade" id="editWorkspaceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit me-2"></i>Edit Workspace</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="editName" class="form-label">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="editName" required>
+                </div>
+                <div class="mb-3">
+                    <label for="editDescription" class="form-label">Description</label>
+                    <textarea class="form-control" id="editDescription" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveWorkspaceBtn" onclick="saveWorkspace()">
+                    <i class="fas fa-save me-2"></i>Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Project Modal -->
+<div class="modal fade" id="createProjectModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Create Project</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="projectName" class="form-label">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="projectName" placeholder="e.g., API Redesign, Q1 Campaign" required>
+                </div>
+                <div class="mb-3">
+                    <label for="projectDescription" class="form-label">Description</label>
+                    <textarea class="form-control" id="projectDescription" rows="2" placeholder="Brief description of the project"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label for="projectVictoryConditions" class="form-label">Victory Conditions</label>
+                    <textarea class="form-control" id="projectVictoryConditions" rows="4" placeholder="- [ ] First goal&#10;- [ ] Second goal&#10;- [ ] Third goal"></textarea>
+                    <div class="form-text">Use markdown checkbox syntax: <code>- [ ]</code> for incomplete, <code>- [x]</code> for complete</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Initial Status</label>
+                    <div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="projectStatus" id="statusDraft" value="draft" checked>
+                            <label class="form-check-label" for="statusDraft">Draft</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="projectStatus" id="statusActive" value="active">
+                            <label class="form-check-label" for="statusActive">Active</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createProjectBtn" onclick="createProject()">
+                    <i class="fas fa-plus me-2"></i>Create Project
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Nested Workspace Modal -->
+<div class="modal fade" id="createChildWorkspaceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-folder-plus me-2"></i>Create Nested Workspace</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Create a workspace nested under <strong id="parentWorkspaceName"></strong>.</p>
+                <div class="mb-3">
+                    <label for="childWorkspaceName" class="form-label">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="childWorkspaceName" placeholder="e.g., Frontend, Backend, Infrastructure" required>
+                </div>
+                <div class="mb-3">
+                    <label for="childWorkspaceDescription" class="form-label">Description</label>
+                    <textarea class="form-control" id="childWorkspaceDescription" rows="2" placeholder="Brief description of this workspace"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createChildWorkspaceBtn2" onclick="createChildWorkspace()">
+                    <i class="fas fa-plus me-2"></i>Create Workspace
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const workspaceId = '@(ViewBag.WorkspaceId?.ToString() ?? "")';
+let workspace = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadWorkspace();
+
+    // Setup archived toggle listener
+    const showArchivedToggle = document.getElementById('showArchivedMemories');
+    if (showArchivedToggle) {
+        showArchivedToggle.addEventListener('change', function() {
+            renderMemoriesList();
+        });
+    }
+});
+
+async function loadWorkspace() {
+    if (!workspaceId) {
+        showError();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/workspace/${workspaceId}`);
+        if (!response.ok) throw new Error('Workspace not found');
+
+        workspace = await response.json();
+        renderWorkspace();
+
+        const spinner = document.getElementById('loadingSpinner');
+        spinner.classList.remove('d-flex');
+        spinner.style.display = 'none';
+        document.getElementById('workspaceContent').style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading workspace:', error);
+        showError();
+    }
+}
+
+function showError() {
+    const spinner = document.getElementById('loadingSpinner');
+    spinner.classList.remove('d-flex');
+    spinner.style.display = 'none';
+    document.getElementById('errorState').style.display = 'block';
+}
+
+function renderWorkspace() {
+    document.getElementById('workspaceName').textContent = workspace.name;
+    document.getElementById('workspaceDescription').textContent = workspace.description || 'No description';
+    document.getElementById('workspaceMeta').textContent =
+        `Slug: ${workspace.slug} | Created: ${formatDate(workspace.createdAt)}`;
+
+    // Update parent workspace name in modal
+    document.getElementById('parentWorkspaceName').textContent = workspace.name;
+
+    if (workspace.isSystem) {
+        document.getElementById('workspaceIcon').className = 'fas fa-lock me-2 text-secondary';
+        document.getElementById('systemBadge').style.display = 'inline';
+        document.getElementById('editButton').style.display = 'none';
+        document.getElementById('createChildWorkspaceBtn').style.display = 'none';
+    }
+
+    // Populate edit modal
+    document.getElementById('editName').value = workspace.name;
+    document.getElementById('editDescription').value = workspace.description || '';
+
+    // Child Workspaces
+    const childWorkspaces = workspace.childWorkspaces || [];
+    document.getElementById('childWorkspaceCount').textContent = childWorkspaces.length;
+    if (childWorkspaces.length > 0) {
+        document.getElementById('childWorkspacesList').innerHTML = childWorkspaces.map(renderChildWorkspaceCard).join('');
+    } else {
+        document.getElementById('noChildWorkspaces').style.display = 'block';
+    }
+
+    // Projects
+    document.getElementById('projectCount').textContent = workspace.projects.length;
+    if (workspace.projects.length > 0) {
+        document.getElementById('projectsList').innerHTML = workspace.projects.map(renderProjectCard).join('');
+    } else {
+        document.getElementById('noProjects').style.display = 'block';
+    }
+
+    // Memories
+    document.getElementById('viewAllMemoriesLink').href = `/memories?workspaceId=${workspaceId}`;
+    renderMemoriesList();
+}
+
+function renderProjectCard(project) {
+    const statusBadge = getStatusBadge(project.status);
+    return `
+        <div class="card mb-2">
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <a href="/projects/${project.id}" class="text-decoration-none fw-bold">
+                            <i class="fas fa-tasks me-2"></i>${escapeHtml(project.name)}
+                        </a>
+                        ${statusBadge}
+                        <span class="badge bg-secondary ms-2">${project.memoryCount} memories</span>
+                    </div>
+                    <a href="/projects/${project.id}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                ${project.description ? `<small class="text-muted">${escapeHtml(project.description)}</small>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function renderChildWorkspaceCard(childWorkspace) {
+    return `
+        <div class="card mb-2">
+            <div class="card-body py-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <a href="/workspaces/${childWorkspace.id}" class="text-decoration-none fw-bold">
+                            <i class="fas fa-folder me-2 text-primary"></i>${escapeHtml(childWorkspace.name)}
+                        </a>
+                        <span class="badge bg-secondary ms-2">${childWorkspace.memoryCount} memories</span>
+                        <span class="badge bg-info ms-1">${childWorkspace.projectCount} projects</span>
+                    </div>
+                    <a href="/workspaces/${childWorkspace.id}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                ${childWorkspace.description ? `<small class="text-muted">${escapeHtml(childWorkspace.description)}</small>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function renderMemoryItem(memory) {
+    const isArchived = memory.archetype === 'archived';
+    const rowClass = isArchived ? 'related-memory-archived' : '';
+    const titleClass = isArchived ? 'memory-title-archived' : '';
+    const archivedBadge = isArchived ? '<span class="badge badge-archived-indicator ms-1">Archived</span>' : '';
+
+    return `
+        <div class="d-flex justify-content-between align-items-center py-2 border-bottom ${rowClass}">
+            <div>
+                <a href="/view/${memory.id}" class="text-decoration-none ${titleClass}">
+                    <i class="fas fa-file-alt me-2 text-muted"></i>${escapeHtml(memory.title)}
+                </a>
+                <span class="badge bg-light text-dark ms-2">${memory.type}</span>
+                ${archivedBadge}
+            </div>
+            <a href="/view/${memory.id}" class="btn btn-sm btn-link">View</a>
+        </div>
+    `;
+}
+
+function renderMemoriesList() {
+    const showArchived = document.getElementById('showArchivedMemories')?.checked || false;
+    const memories = workspace?.recentMemories || [];
+
+    // Filter memories based on archived toggle
+    const visibleMemories = memories.filter(m =>
+        showArchived || m.archetype !== 'archived'
+    );
+
+    // Check if there are any archived memories
+    const archivedCount = memories.filter(m => m.archetype === 'archived').length;
+    const hasArchivedMemories = archivedCount > 0;
+
+    // Show/hide toggle based on whether there are archived memories
+    const toggleContainer = document.getElementById('showArchivedContainer');
+    if (toggleContainer) {
+        toggleContainer.style.display = hasArchivedMemories ? 'block' : 'none';
+    }
+
+    // Update count badge
+    const countBadge = document.getElementById('memoryCount');
+    if (countBadge) {
+        if (hasArchivedMemories && !showArchived) {
+            countBadge.textContent = `${visibleMemories.length} (${archivedCount} archived)`;
+        } else {
+            countBadge.textContent = workspace?.memoryCount?.toString() || '0';
+        }
+    }
+
+    // Render the list
+    const listEl = document.getElementById('memoriesList');
+    const noMemoriesEl = document.getElementById('noMemories');
+
+    if (visibleMemories.length > 0) {
+        listEl.innerHTML = visibleMemories.map(renderMemoryItem).join('');
+        noMemoriesEl.style.display = 'none';
+    } else {
+        listEl.innerHTML = '';
+        noMemoriesEl.style.display = 'block';
+    }
+}
+
+function getStatusBadge(status) {
+    const badges = {
+        'draft': '<span class="badge bg-secondary">Draft</span>',
+        'active': '<span class="badge bg-success">Active</span>',
+        'on_hold': '<span class="badge bg-warning text-dark">On Hold</span>',
+        'onhold': '<span class="badge bg-warning text-dark">On Hold</span>',
+        'completed': '<span class="badge bg-info">Completed</span>',
+        'cancelled': '<span class="badge bg-danger">Cancelled</span>',
+        'archived': '<span class="badge bg-dark">Archived</span>'
+    };
+    return badges[status.toLowerCase()] || `<span class="badge bg-secondary">${status}</span>`;
+}
+
+async function saveWorkspace() {
+    const name = document.getElementById('editName').value.trim();
+    const description = document.getElementById('editDescription').value.trim();
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    const btn = document.getElementById('saveWorkspaceBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(`/api/workspace/${workspaceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description: description || null })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to update');
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('editWorkspaceModal')).hide();
+        loadWorkspace();
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function createProject() {
+    const name = document.getElementById('projectName').value.trim();
+    const description = document.getElementById('projectDescription').value.trim();
+    const victoryConditions = document.getElementById('projectVictoryConditions').value.trim();
+    const status = document.querySelector('input[name="projectStatus"]:checked').value;
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    const btn = document.getElementById('createProjectBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/project', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                workspaceId: workspaceId,
+                name,
+                description: description || null,
+                victoryConditions: victoryConditions || null,
+                status
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to create project');
+        }
+
+        const newProject = await response.json();
+        bootstrap.Modal.getInstance(document.getElementById('createProjectModal')).hide();
+
+        // Clear form
+        document.getElementById('projectName').value = '';
+        document.getElementById('projectDescription').value = '';
+        document.getElementById('projectVictoryConditions').value = '';
+        document.getElementById('statusDraft').checked = true;
+
+        // Navigate to the new project
+        window.location.href = `/projects/${newProject.id}`;
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function createChildWorkspace() {
+    const name = document.getElementById('childWorkspaceName').value.trim();
+    const description = document.getElementById('childWorkspaceDescription').value.trim();
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    const btn = document.getElementById('createChildWorkspaceBtn2');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/workspace', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name,
+                description: description || null,
+                parentId: workspaceId
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to create workspace');
+        }
+
+        const newWorkspace = await response.json();
+        bootstrap.Modal.getInstance(document.getElementById('createChildWorkspaceModal')).hide();
+
+        // Clear form
+        document.getElementById('childWorkspaceName').value = '';
+        document.getElementById('childWorkspaceDescription').value = '';
+
+        // Navigate to the new workspace
+        window.location.href = `/workspaces/${newWorkspace.id}`;
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+}

@@ -16,7 +16,7 @@ public static class Routes
     public static WebApplication MapProgressEndpoints(this WebApplication app)
     {
         // SSE endpoint for title generation progress
-        app.MapGet("/ui/tools/title-generation-progress",
+        app.MapGet("/tools/title-generation-progress",
             async (IActorRegistry actorRegistry, CancellationToken ct) =>
         {
             var titleGenActor = await actorRegistry.GetAsync<TitleGenerationActorKey>(ct);
@@ -48,7 +48,7 @@ public static class Routes
         });
 
         // SSE endpoint for embedding regeneration progress
-        app.MapGet("/ui/tools/embedding-regeneration-progress",
+        app.MapGet("/tools/embedding-regeneration-progress",
             async (IActorRegistry actorRegistry, CancellationToken ct) =>
         {
             var embeddingRegenerationActor = await actorRegistry.GetAsync<EmbeddingRegenerationActorKey>(ct);
@@ -80,7 +80,7 @@ public static class Routes
         });
 
         // SSE endpoint for version purge progress
-        app.MapGet("/ui/tools/version-purge-progress",
+        app.MapGet("/tools/version-purge-progress",
             async (IActorRegistry actorRegistry, CancellationToken ct) =>
         {
             var versionPurgeActor = await actorRegistry.GetAsync<VersionPurgeActorKey>(ct);
@@ -112,7 +112,7 @@ public static class Routes
         });
 
         // SSE endpoint for dimension migration progress
-        app.MapGet("/ui/tools/dimension-migration-progress",
+        app.MapGet("/tools/dimension-migration-progress",
             async (IActorRegistry actorRegistry, CancellationToken ct) =>
         {
             var dimensionMigrationActor = await actorRegistry.GetAsync<DimensionMigrationActorKey>(ct);

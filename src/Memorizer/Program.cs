@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Configuration.Extensions.EnvironmentFile;
 using Memorizer;
 using Memorizer.Extensions;
@@ -40,10 +42,17 @@ builder.Services.AddMemorizer();
 builder.Services.AddMemorizerOtel();
 builder.Services.AddMcpServer()
     .WithHttpTransport(options => options.Stateless = true)
-    .WithTools<MemoryTools>();
+    .WithTools<MemoryTools>()
+    .WithTools<WorkspaceTools>();
 
 // Add MVC support for web UI
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews()
+    .AddJsonOptions(options =>
+    {
+        // Serialize enums as lowercase strings (e.g., "archived" instead of "Archived")
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+    });
 
 // Configure CORS for MCP SSE endpoint - always enabled with configurable settings
 var corsSettings = builder.Configuration.GetSection("Cors").Get<CorsSettings>() ?? new CorsSettings();
@@ -112,7 +121,7 @@ app.UseStaticFiles();
 // Enable CORS for MCP SSE endpoint
 app.UseCors();
 
-app.MapMcp();
+app.MapMcp("/mcp");
 
 // Configure health check endpoints
 app.MapHealthChecks("/healthz");

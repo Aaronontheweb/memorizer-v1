@@ -26,7 +26,11 @@ public class EmbeddingDimensionServiceTests
         _output = output;
     }
 
-    private IServiceProvider CreateServices(string model = "all-minilm")
+    /// <summary>
+    /// Creates a ServiceProvider for testing. Returns ServiceProvider directly (not IServiceProvider)
+    /// so tests can dispose it properly to release connection pool resources.
+    /// </summary>
+    private ServiceProvider CreateServices(string model = "all-minilm")
     {
         var services = new ServiceCollection();
 
@@ -65,7 +69,7 @@ public class EmbeddingDimensionServiceTests
     public async Task ProbeModelDimensions_ReturnsCorrectDimensionsForAllMiniLm()
     {
         // Arrange
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // Act
@@ -81,7 +85,7 @@ public class EmbeddingDimensionServiceTests
     public async Task GetDatabaseSchemaDimensions_ReturnsSchemaVectorDimensions()
     {
         // Arrange
-        var services = CreateServices();
+        using var services = CreateServices();
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // Act
@@ -97,7 +101,7 @@ public class EmbeddingDimensionServiceTests
     public async Task Validate_WhenDimensionsMatch_ReturnsSuccessWithNoMismatch()
     {
         // Arrange
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // Act
@@ -117,7 +121,7 @@ public class EmbeddingDimensionServiceTests
     {
         // Arrange - Create a stored config with different dimensions than the model outputs
         // This simulates switching to a model with different output dimensions
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         await using var conn = new NpgsqlConnection(_fixture.PostgresConnectionString);
@@ -159,7 +163,7 @@ public class EmbeddingDimensionServiceTests
     public async Task Validate_WhenStoredConfigDiffersFromSchema_DetectsIncompleteMigration()
     {
         // Arrange
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         await using var conn = new NpgsqlConnection(_fixture.PostgresConnectionString);
@@ -201,7 +205,7 @@ public class EmbeddingDimensionServiceTests
     public async Task UpdateActiveConfig_DeactivatesOldAndCreatesNew()
     {
         // Arrange
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // Act
@@ -241,7 +245,7 @@ public class EmbeddingDimensionServiceTests
     public async Task GetEffectiveDimensions_ReturnsDetectedWhenAvailable()
     {
         // Arrange
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // Act
@@ -256,7 +260,7 @@ public class EmbeddingDimensionServiceTests
     public async Task ProbeModelDimensions_CachesDimensionsOnSecondCall()
     {
         // Arrange
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // Act - First call probes the model
@@ -280,7 +284,7 @@ public class EmbeddingDimensionServiceTests
     public async Task ProbeModelDimensions_WithNonexistentModel_ReturnsNull()
     {
         // Arrange - Configure with a model that doesn't exist
-        var services = CreateServices("nonexistent-model-xyz");
+        using var services = CreateServices("nonexistent-model-xyz");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // Act
@@ -295,7 +299,7 @@ public class EmbeddingDimensionServiceTests
     public async Task Validate_WithUnavailableApi_StillChecksStoredAndSchema()
     {
         // Arrange - Use a model that doesn't exist (API will fail)
-        var services = CreateServices("nonexistent-model-xyz");
+        using var services = CreateServices("nonexistent-model-xyz");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         // First, set up a stored config that matches the schema
@@ -332,7 +336,7 @@ public class EmbeddingDimensionServiceTests
     {
         // Arrange - Different model name but same dimensions
         // This tests the scenario where user switches between models with same output size
-        var services = CreateServices("all-minilm");
+        using var services = CreateServices("all-minilm");
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         await using var conn = new NpgsqlConnection(_fixture.PostgresConnectionString);
@@ -374,7 +378,7 @@ public class EmbeddingDimensionServiceTests
     public async Task GetActiveConfig_WhenNoConfigExists_ReturnsNull()
     {
         // Arrange
-        var services = CreateServices();
+        using var services = CreateServices();
         var dimensionService = services.GetRequiredService<IEmbeddingDimensionService>();
 
         await using var conn = new NpgsqlConnection(_fixture.PostgresConnectionString);

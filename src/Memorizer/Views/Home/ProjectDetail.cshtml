@@ -1,0 +1,581 @@
+@{
+    ViewData["Title"] = "Project Details";
+}
+
+<div id="loadingSpinner" class="d-flex justify-content-center py-5">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+
+<div id="projectContent" style="display: none;">
+    <!-- Header -->
+    <div class="mb-4">
+        <a id="backLink" href="/workspaces" class="btn btn-link ps-0">
+            <i class="fas fa-arrow-left me-2"></i>Back to <span id="backWorkspaceName">Workspace</span>
+        </a>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h2>
+                <i class="fas fa-tasks me-2 text-primary"></i>
+                <span id="projectName"></span>
+                <span id="statusBadge" class="badge ms-2"></span>
+            </h2>
+            <p class="lead text-muted" id="projectDescription"></p>
+            <small class="text-muted">
+                <span id="projectMeta"></span>
+            </small>
+            <div id="parentProjectLink" style="display: none;">
+                <small class="text-muted">
+                    <i class="bi bi-folder-symlink me-1"></i>
+                    Parent Project: <a id="parentProjectLinkHref" href="#"></a>
+                </small>
+            </div>
+        </div>
+        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editProjectModal">
+            <i class="fas fa-edit me-2"></i>Edit
+        </button>
+    </div>
+
+    <hr>
+
+    <!-- Status Section - Compact inline design -->
+    <div class="d-flex align-items-center gap-3 mb-4 p-3 rounded" style="background-color: var(--surface-card-alt);">
+        <span class="text-muted"><i class="fas fa-flag me-2"></i>Status:</span>
+        <div class="dropdown">
+            <button class="btn btn-sm dropdown-toggle" type="button" id="statusDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                <!-- Status badge rendered by JS -->
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="statusDropdown" id="statusMenu">
+                <!-- Status options rendered by JS -->
+            </ul>
+        </div>
+    </div>
+
+    <!-- Victory Conditions Section -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-trophy me-2"></i>Victory Conditions</h5>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editConditionsModal">
+                <i class="fas fa-edit me-1"></i>Edit
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="victoryConditions" class="markdown-content"></div>
+            <div id="noConditions" class="text-muted" style="display: none;">
+                <i class="fas fa-info-circle me-2"></i>
+                No victory conditions defined. Click Edit to add success criteria.
+            </div>
+        </div>
+    </div>
+
+    <!-- Subprojects Section (Read-Only) -->
+    <div id="subprojectsCard" class="card mb-4" style="display: none;">
+        <div class="card-header">
+            <h5 class="mb-0">
+                <i class="bi bi-folder-symlink me-2"></i>
+                Subprojects <span class="badge bg-secondary" id="subprojectCount">0</span>
+            </h5>
+        </div>
+        <div class="card-body">
+            <div id="subprojectsList" class="list-group list-group-flush"></div>
+        </div>
+    </div>
+
+    <!-- Memories Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-brain me-2"></i>
+                    Memories <span class="badge bg-secondary" id="memoryCount">0</span>
+                </h5>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="form-check form-switch" id="showArchivedContainer" style="display:none;">
+                        <input class="form-check-input" type="checkbox" id="showArchivedMemories">
+                        <label class="form-check-label archived-toggle-label" for="showArchivedMemories">
+                            Show Archived
+                        </label>
+                    </div>
+                    <a id="newMemoryLink" href="/create" class="btn btn-sm btn-primary me-2">
+                        <i class="fas fa-plus me-1"></i>New Memory
+                    </a>
+                    <a id="viewAllLink" href="#" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-arrow-right me-1"></i>View All
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="memoriesList"></div>
+            <div id="noMemories" class="text-center text-muted py-3" style="display: none;">
+                <p class="mb-0">No memories in this project yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="card border-danger mb-4">
+        <div class="card-header bg-danger text-white">
+            <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Danger Zone</h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-secondary" id="archiveBtn" onclick="archiveProject()">
+                    <i class="fas fa-archive me-2"></i>Archive Project
+                </button>
+                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteProjectModal">
+                    <i class="fas fa-trash me-2"></i>Delete Project
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Error State -->
+<div id="errorState" style="display: none;" class="text-center py-5">
+    <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+    <h5 class="text-muted">Project Not Found</h5>
+    <p class="text-muted">The project you're looking for could not be found.</p>
+    <a href="/workspaces" class="btn btn-primary">
+        <i class="fas fa-arrow-left me-2"></i>Back to Workspaces
+    </a>
+</div>
+
+<!-- Edit Project Modal -->
+<div class="modal fade" id="editProjectModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit me-2"></i>Edit Project</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="editName" class="form-label">Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="editName" required>
+                </div>
+                <div class="mb-3">
+                    <label for="editDescription" class="form-label">Description</label>
+                    <textarea class="form-control" id="editDescription" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveProject()">
+                    <i class="fas fa-save me-2"></i>Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Victory Conditions Modal -->
+<div class="modal fade" id="editConditionsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-trophy me-2"></i>Edit Victory Conditions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="editConditions" class="form-label">Victory Conditions (Markdown)</label>
+                    <textarea class="form-control font-monospace" id="editConditions" rows="10" placeholder="- [ ] First goal&#10;- [ ] Second goal&#10;- [x] Completed goal"></textarea>
+                    <div class="form-text">
+                        Use <code>- [ ]</code> for incomplete items and <code>- [x]</code> for completed items.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveConditions()">
+                    <i class="fas fa-save me-2"></i>Save Conditions
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Project Modal -->
+<div class="modal fade" id="deleteProjectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i>Delete Project</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete <strong id="deleteProjectName"></strong>?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <span id="deleteWarning">Memories will be moved to Unfiled.</span>
+                </div>
+                <p class="text-muted small">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="deleteProject()">
+                    <i class="fas fa-trash me-2"></i>Delete Project
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const projectId = '@(ViewBag.ProjectId?.ToString() ?? "")';
+let project = null;
+
+const statusOrder = ['draft', 'active', 'onhold', 'completed', 'cancelled', 'archived'];
+const statusConfig = {
+    'draft': { label: 'Draft', class: 'secondary', icon: 'fa-pencil-alt' },
+    'active': { label: 'Active', class: 'success', icon: 'fa-play' },
+    'onhold': { label: 'On Hold', class: 'warning', icon: 'fa-pause' },
+    'on_hold': { label: 'On Hold', class: 'warning', icon: 'fa-pause' },
+    'completed': { label: 'Completed', class: 'info', icon: 'fa-check' },
+    'cancelled': { label: 'Cancelled', class: 'danger', icon: 'fa-times' },
+    'archived': { label: 'Archived', class: 'dark', icon: 'fa-archive' }
+};
+
+function getStatusConfig(status) {
+    const normalizedStatus = status.toLowerCase().replace('_', '');
+    return statusConfig[normalizedStatus] || statusConfig['draft'];
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadProject();
+
+    // Add event listener for show archived memories toggle
+    const showArchivedToggle = document.getElementById('showArchivedMemories');
+    if (showArchivedToggle) {
+        showArchivedToggle.addEventListener('change', function() {
+            renderMemoriesList();
+        });
+    }
+});
+
+async function loadProject() {
+    if (!projectId) {
+        showError();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/project/${projectId}`);
+        if (!response.ok) throw new Error('Project not found');
+
+        project = await response.json();
+        renderProject();
+
+        const spinner = document.getElementById('loadingSpinner');
+        spinner.classList.remove('d-flex');
+        spinner.style.display = 'none';
+        document.getElementById('projectContent').style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading project:', error);
+        showError();
+    }
+}
+
+function showError() {
+    const spinner = document.getElementById('loadingSpinner');
+    spinner.classList.remove('d-flex');
+    spinner.style.display = 'none';
+    document.getElementById('errorState').style.display = 'block';
+}
+
+function renderProject() {
+    // Header
+    document.getElementById('projectName').textContent = project.name;
+    document.getElementById('projectDescription').textContent = project.description || 'No description';
+    document.getElementById('projectMeta').textContent =
+        `Workspace: ${project.workspaceName} | Created: ${formatDate(project.createdAt)}`;
+
+    // Back link
+    document.getElementById('backLink').href = `/workspaces/${project.workspaceId}`;
+    document.getElementById('backWorkspaceName').textContent = project.workspaceName;
+
+    // Parent project link
+    if (project.parentId) {
+        document.getElementById('parentProjectLink').style.display = 'block';
+        document.getElementById('parentProjectLinkHref').href = `/projects/${project.parentId}`;
+        document.getElementById('parentProjectLinkHref').textContent = 'View Parent';
+    }
+
+    // Status badge
+    const status = project.status.toLowerCase().replace('_', '');
+    const config = statusConfig[status] || statusConfig['draft'];
+    document.getElementById('statusBadge').className = `badge bg-${config.class} ms-2`;
+    document.getElementById('statusBadge').textContent = config.label;
+
+    // Populate edit modals
+    document.getElementById('editName').value = project.name;
+    document.getElementById('editDescription').value = project.description || '';
+    document.getElementById('editConditions').value = project.victoryConditions || '';
+    document.getElementById('deleteProjectName').textContent = project.name;
+    document.getElementById('deleteWarning').textContent = `${project.memoryCount} memories will be moved to Unfiled.`;
+
+    // Status dropdown
+    renderStatusDropdown();
+
+    // Victory conditions
+    if (project.victoryConditions) {
+        document.getElementById('victoryConditions').innerHTML = marked.parse(project.victoryConditions);
+        document.getElementById('noConditions').style.display = 'none';
+    } else {
+        document.getElementById('victoryConditions').innerHTML = '';
+        document.getElementById('noConditions').style.display = 'block';
+    }
+
+    // Memories
+    document.getElementById('viewAllLink').href = `/memories?projectId=${projectId}`;
+    document.getElementById('newMemoryLink').href = `/create?projectId=${projectId}`;
+    renderMemoriesList();
+
+    // Child projects (subprojects)
+    if (project.childProjects && project.childProjects.length > 0) {
+        document.getElementById('subprojectsCard').style.display = 'block';
+        document.getElementById('subprojectCount').textContent = project.childProjects.length;
+        document.getElementById('subprojectsList').innerHTML = project.childProjects.map(child => {
+            const statusConfig = getStatusConfig(child.status);
+            return `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-1">
+                                <i class="bi bi-folder-symlink me-1"></i>
+                                <a href="/projects/${child.id}">${escapeHtml(child.name)}</a>
+                            </h6>
+                            ${child.description ? `<small class="text-muted">${escapeHtml(child.description)}</small>` : ''}
+                        </div>
+                        <div>
+                            <span class="badge bg-${statusConfig.class} me-1">${statusConfig.label}</span>
+                            <span class="badge bg-secondary">${child.memoryCount} memories</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } else {
+        document.getElementById('subprojectsCard').style.display = 'none';
+    }
+
+    // Archive button text
+    const archiveBtn = document.getElementById('archiveBtn');
+    if (status === 'archived') {
+        archiveBtn.innerHTML = '<i class="fas fa-box-open me-2"></i>Unarchive Project';
+        archiveBtn.onclick = () => changeStatus('completed');
+    } else {
+        archiveBtn.innerHTML = '<i class="fas fa-archive me-2"></i>Archive Project';
+        archiveBtn.onclick = archiveProject;
+    }
+}
+
+function renderStatusDropdown() {
+    const currentStatus = project.status.toLowerCase().replace('_', '');
+    const config = statusConfig[currentStatus] || statusConfig['draft'];
+
+    // Set dropdown button to show current status as a badge
+    const dropdown = document.getElementById('statusDropdown');
+    dropdown.className = `btn btn-${config.class} btn-sm dropdown-toggle`;
+    dropdown.innerHTML = `<i class="fas ${config.icon} me-1"></i>${config.label}`;
+
+    // Build menu items - show all statuses, current one disabled
+    const allStatuses = ['draft', 'active', 'onhold', 'completed', 'cancelled'];
+    const menu = document.getElementById('statusMenu');
+
+    menu.innerHTML = allStatuses.map(s => {
+        const sConfig = statusConfig[s];
+        const isCurrent = s === currentStatus;
+        return `
+            <li>
+                <button class="dropdown-item ${isCurrent ? 'active disabled' : ''}"
+                        type="button"
+                        ${isCurrent ? 'disabled' : `onclick="changeStatus('${s}')"`}>
+                    <i class="fas ${sConfig.icon} me-2 text-${sConfig.class}"></i>${sConfig.label}
+                    ${isCurrent ? '<i class="fas fa-check ms-2"></i>' : ''}
+                </button>
+            </li>
+        `;
+    }).join('');
+}
+
+function renderMemoryItem(memory) {
+    const isArchived = memory.archetype === 'archived';
+    const rowClass = isArchived ? 'related-memory-archived' : '';
+    const titleClass = isArchived ? 'memory-title-archived' : '';
+    const archivedBadge = isArchived ? '<span class="badge badge-archived-indicator ms-1">Archived</span>' : '';
+
+    return `
+        <div class="d-flex justify-content-between align-items-center py-2 border-bottom ${rowClass}">
+            <div>
+                <a href="/view/${memory.id}" class="text-decoration-none ${titleClass}">
+                    <i class="fas fa-file-alt me-2 text-muted"></i>${escapeHtml(memory.title)}
+                </a>
+                <span class="badge bg-light text-dark ms-2">${memory.type}</span>
+                ${archivedBadge}
+            </div>
+            <div>
+                <a href="/view/${memory.id}" class="btn btn-sm btn-link">View</a>
+                <a href="/edit/${memory.id}" class="btn btn-sm btn-link">Edit</a>
+            </div>
+        </div>
+    `;
+}
+
+function renderMemoriesList() {
+    const showArchived = document.getElementById('showArchivedMemories')?.checked || false;
+    const memories = project?.memories || [];
+
+    // Filter memories based on archived toggle
+    const visibleMemories = memories.filter(m =>
+        showArchived || m.archetype !== 'archived'
+    );
+
+    // Check if there are any archived memories
+    const archivedCount = memories.filter(m => m.archetype === 'archived').length;
+    const hasArchivedMemories = archivedCount > 0;
+
+    // Show/hide toggle based on whether there are archived memories
+    const toggleContainer = document.getElementById('showArchivedContainer');
+    if (toggleContainer) {
+        toggleContainer.style.display = hasArchivedMemories ? 'block' : 'none';
+    }
+
+    // Update count badge
+    const countBadge = document.getElementById('memoryCount');
+    if (countBadge) {
+        if (hasArchivedMemories && !showArchived) {
+            countBadge.textContent = `${visibleMemories.length} (${archivedCount} archived)`;
+        } else {
+            countBadge.textContent = visibleMemories.length.toString();
+        }
+    }
+
+    // Render the list
+    const listEl = document.getElementById('memoriesList');
+    const noMemoriesEl = document.getElementById('noMemories');
+
+    if (visibleMemories.length > 0) {
+        listEl.innerHTML = visibleMemories.map(renderMemoryItem).join('');
+        noMemoriesEl.style.display = 'none';
+    } else {
+        listEl.innerHTML = '';
+        noMemoriesEl.style.display = 'block';
+    }
+}
+
+async function changeStatus(newStatus) {
+    try {
+        const response = await fetch(`/api/project/${projectId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to update status');
+        }
+
+        loadProject();
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function saveProject() {
+    const name = document.getElementById('editName').value.trim();
+    const description = document.getElementById('editDescription').value.trim();
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/project/${projectId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description: description || null })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to update');
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('editProjectModal')).hide();
+        loadProject();
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function saveConditions() {
+    const victoryConditions = document.getElementById('editConditions').value.trim();
+
+    try {
+        const response = await fetch(`/api/project/${projectId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ victoryConditions: victoryConditions || null })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to update');
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('editConditionsModal')).hide();
+        loadProject();
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+async function archiveProject() {
+    if (!confirm('Archive this project? It can be unarchived later.')) return;
+    await changeStatus('archived');
+}
+
+async function deleteProject() {
+    try {
+        const response = await fetch(`/api/project/${projectId}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to delete');
+        }
+
+        window.location.href = `/workspaces/${project.workspaceId}`;
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
+}
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+}

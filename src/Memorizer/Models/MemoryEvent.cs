@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Memorizer.Models.ValueTypes;
 
 namespace Memorizer.Models;
 
@@ -9,9 +10,9 @@ namespace Memorizer.Models;
 /// </summary>
 public class MemoryEvent
 {
-    public Guid EventId { get; init; }
-    public Guid MemoryId { get; init; }
-    public int VersionNumber { get; init; }
+    public EventId EventId { get; init; }
+    public MemoryId MemoryId { get; init; }
+    public VersionNumber VersionNumber { get; init; }
     public string EventType { get; init; } = string.Empty;
     public JsonDocument EventData { get; init; } = JsonDocument.Parse("{}");
     public DateTime Timestamp { get; init; }
@@ -53,10 +54,10 @@ public class MemoryEvent
                     JsonSerializer.Deserialize<MetadataUpdatedEvent>(json, options) ?? new MetadataUpdatedEvent(new Dictionary<string, MetadataChange>()),
 
                 MemoryChangeEventTypes.RelationshipAdded =>
-                    JsonSerializer.Deserialize<RelationshipAddedEvent>(json, options) ?? new RelationshipAddedEvent("", Guid.Empty),
+                    JsonSerializer.Deserialize<RelationshipAddedEvent>(json, options) ?? new RelationshipAddedEvent("", MemoryId.Empty),
 
                 MemoryChangeEventTypes.RelationshipRemoved =>
-                    JsonSerializer.Deserialize<RelationshipRemovedEvent>(json, options) ?? new RelationshipRemovedEvent("", Guid.Empty),
+                    JsonSerializer.Deserialize<RelationshipRemovedEvent>(json, options) ?? new RelationshipRemovedEvent("", MemoryId.Empty),
 
                 MemoryChangeEventTypes.MemoryReverted =>
                     JsonSerializer.Deserialize<MemoryRevertedEvent>(json, options) ?? new MemoryRevertedEvent(0),
@@ -74,8 +75,8 @@ public class MemoryEvent
     /// Creates a MemoryEvent from a strongly-typed change event.
     /// </summary>
     public static MemoryEvent Create(
-        Guid memoryId,
-        int versionNumber,
+        MemoryId memoryId,
+        VersionNumber versionNumber,
         MemoryChangeEvent change,
         string? changedBy = null)
     {
@@ -83,7 +84,7 @@ public class MemoryEvent
 
         return new MemoryEvent
         {
-            EventId = Guid.NewGuid(),
+            EventId = Models.EventId.New(),
             MemoryId = memoryId,
             VersionNumber = versionNumber,
             EventType = eventType,
@@ -281,7 +282,7 @@ public record MetadataUpdatedEvent(
 /// </summary>
 public record RelationshipAddedEvent(
     [property: JsonPropertyName("relationship_type")] string RelationshipType,
-    [property: JsonPropertyName("target_memory_id")] Guid TargetMemoryId,
+    [property: JsonPropertyName("target_memory_id")] MemoryId TargetMemoryId,
     [property: JsonPropertyName("target_memory_title")] string? TargetMemoryTitle = null
 ) : MemoryChangeEvent
 {
@@ -298,7 +299,7 @@ public record RelationshipAddedEvent(
         => (MemoryChangeEventTypes.RelationshipAdded, ToJsonDocument(new
         {
             relationship_type = RelationshipType,
-            target_memory_id = TargetMemoryId,
+            target_memory_id = TargetMemoryId.Value, // Serialize as raw Guid for database compatibility
             target_memory_title = TargetMemoryTitle
         }));
 }
@@ -308,7 +309,7 @@ public record RelationshipAddedEvent(
 /// </summary>
 public record RelationshipRemovedEvent(
     [property: JsonPropertyName("relationship_type")] string RelationshipType,
-    [property: JsonPropertyName("target_memory_id")] Guid TargetMemoryId,
+    [property: JsonPropertyName("target_memory_id")] MemoryId TargetMemoryId,
     [property: JsonPropertyName("target_memory_title")] string? TargetMemoryTitle = null
 ) : MemoryChangeEvent
 {
@@ -325,7 +326,7 @@ public record RelationshipRemovedEvent(
         => (MemoryChangeEventTypes.RelationshipRemoved, ToJsonDocument(new
         {
             relationship_type = RelationshipType,
-            target_memory_id = TargetMemoryId,
+            target_memory_id = TargetMemoryId.Value, // Serialize as raw Guid for database compatibility
             target_memory_title = TargetMemoryTitle
         }));
 }

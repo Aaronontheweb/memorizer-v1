@@ -1,0 +1,282 @@
+using System.Text.Json;
+using Memorizer.Models;
+
+namespace Memorizer.UnitTests;
+
+public class EntityIdTests
+{
+    #region MemoryId Tests
+
+    [Fact]
+    public void MemoryId_New_CreatesUniqueIds()
+    {
+        var id1 = MemoryId.New();
+        var id2 = MemoryId.New();
+
+        Assert.NotEqual(id1, id2);
+        Assert.NotEqual(MemoryId.Empty, id1);
+    }
+
+    [Fact]
+    public void MemoryId_Empty_ReturnsEmptyGuid()
+    {
+        Assert.Equal(Guid.Empty, MemoryId.Empty.Value);
+    }
+
+    [Fact]
+    public void MemoryId_Parse_RoundTrips()
+    {
+        var original = MemoryId.New();
+        var parsed = MemoryId.Parse(original.ToString());
+
+        Assert.Equal(original, parsed);
+    }
+
+    [Fact]
+    public void MemoryId_TryParse_ValidGuid_ReturnsTrue()
+    {
+        var guid = Guid.NewGuid();
+        var result = MemoryId.TryParse(guid.ToString(), out var id);
+
+        Assert.True(result);
+        Assert.Equal(guid, id.Value);
+    }
+
+    [Fact]
+    public void MemoryId_TryParse_InvalidString_ReturnsFalse()
+    {
+        var result = MemoryId.TryParse("not-a-guid", out var id);
+
+        Assert.False(result);
+        Assert.Equal(MemoryId.Empty, id);
+    }
+
+    [Fact]
+    public void MemoryId_TryParse_Null_ReturnsFalse()
+    {
+        var result = MemoryId.TryParse(null, out var id);
+
+        Assert.False(result);
+        Assert.Equal(MemoryId.Empty, id);
+    }
+
+    [Fact]
+    public void MemoryId_ExplicitCast_ToGuid_Works()
+    {
+        var guid = Guid.NewGuid();
+        var memoryId = (MemoryId)guid;
+        var backToGuid = (Guid)memoryId;
+
+        Assert.Equal(guid, backToGuid);
+    }
+
+    [Fact]
+    public void MemoryId_JsonSerialization_RoundTrips()
+    {
+        var original = MemoryId.New();
+        var json = JsonSerializer.Serialize(original);
+        var deserialized = JsonSerializer.Deserialize<MemoryId>(json);
+
+        Assert.Equal(original, deserialized);
+    }
+
+    [Fact]
+    public void MemoryId_JsonSerialization_SerializesAsString()
+    {
+        var id = MemoryId.New();
+        var json = JsonSerializer.Serialize(id);
+
+        // Should be a quoted string, not an object
+        Assert.StartsWith("\"", json);
+        Assert.EndsWith("\"", json);
+    }
+
+    [Fact]
+    public void MemoryId_CompareTo_OrdersByGuidValue()
+    {
+        var id1 = new MemoryId(Guid.Parse("00000000-0000-0000-0000-000000000001"));
+        var id2 = new MemoryId(Guid.Parse("00000000-0000-0000-0000-000000000002"));
+
+        Assert.True(id1.CompareTo(id2) < 0);
+        Assert.True(id2.CompareTo(id1) > 0);
+        Assert.Equal(0, id1.CompareTo(id1));
+    }
+
+    [Fact]
+    public void MemoryId_Equality_WorksCorrectly()
+    {
+        var guid = Guid.NewGuid();
+        var id1 = new MemoryId(guid);
+        var id2 = new MemoryId(guid);
+        var id3 = MemoryId.New();
+
+        Assert.Equal(id1, id2);
+        Assert.NotEqual(id1, id3);
+        Assert.True(id1 == id2);
+        Assert.True(id1 != id3);
+    }
+
+    #endregion
+
+    #region RelationshipId Tests
+
+    [Fact]
+    public void RelationshipId_New_CreatesUniqueIds()
+    {
+        var id1 = RelationshipId.New();
+        var id2 = RelationshipId.New();
+
+        Assert.NotEqual(id1, id2);
+    }
+
+    [Fact]
+    public void RelationshipId_JsonSerialization_RoundTrips()
+    {
+        var original = RelationshipId.New();
+        var json = JsonSerializer.Serialize(original);
+        var deserialized = JsonSerializer.Deserialize<RelationshipId>(json);
+
+        Assert.Equal(original, deserialized);
+    }
+
+    #endregion
+
+    #region VersionId Tests
+
+    [Fact]
+    public void VersionId_New_CreatesUniqueIds()
+    {
+        var id1 = VersionId.New();
+        var id2 = VersionId.New();
+
+        Assert.NotEqual(id1, id2);
+    }
+
+    [Fact]
+    public void VersionId_JsonSerialization_RoundTrips()
+    {
+        var original = VersionId.New();
+        var json = JsonSerializer.Serialize(original);
+        var deserialized = JsonSerializer.Deserialize<VersionId>(json);
+
+        Assert.Equal(original, deserialized);
+    }
+
+    #endregion
+
+    #region EventId Tests
+
+    [Fact]
+    public void EventId_New_CreatesUniqueIds()
+    {
+        var id1 = EventId.New();
+        var id2 = EventId.New();
+
+        Assert.NotEqual(id1, id2);
+    }
+
+    [Fact]
+    public void EventId_JsonSerialization_RoundTrips()
+    {
+        var original = EventId.New();
+        var json = JsonSerializer.Serialize(original);
+        var deserialized = JsonSerializer.Deserialize<EventId>(json);
+
+        Assert.Equal(original, deserialized);
+    }
+
+    #endregion
+
+    #region ProviderSettingsId Tests
+
+    [Fact]
+    public void ProviderSettingsId_New_CreatesUniqueIds()
+    {
+        var id1 = ProviderSettingsId.New();
+        var id2 = ProviderSettingsId.New();
+
+        Assert.NotEqual(id1, id2);
+    }
+
+    [Fact]
+    public void ProviderSettingsId_JsonSerialization_RoundTrips()
+    {
+        var original = ProviderSettingsId.New();
+        var json = JsonSerializer.Serialize(original);
+        var deserialized = JsonSerializer.Deserialize<ProviderSettingsId>(json);
+
+        Assert.Equal(original, deserialized);
+    }
+
+    #endregion
+
+    #region Future ID Tests (WorkspaceId, ProjectId)
+
+    [Fact]
+    public void WorkspaceId_New_CreatesUniqueIds()
+    {
+        var id1 = WorkspaceId.New();
+        var id2 = WorkspaceId.New();
+
+        Assert.NotEqual(id1, id2);
+    }
+
+    [Fact]
+    public void ProjectId_New_CreatesUniqueIds()
+    {
+        var id1 = ProjectId.New();
+        var id2 = ProjectId.New();
+
+        Assert.NotEqual(id1, id2);
+    }
+
+    #endregion
+
+    #region Type Safety Tests
+
+    [Fact]
+    public void DifferentIdTypes_AreNotAssignable()
+    {
+        // This test documents the compile-time type safety
+        // If these IDs were raw Guids, they could be accidentally swapped
+        var memoryId = MemoryId.New();
+        var relationshipId = RelationshipId.New();
+
+        // These would be compile errors with strong types:
+        // MemoryId wrongId = relationshipId; // Won't compile!
+
+        // We can verify they're different types at runtime
+        Assert.IsType<MemoryId>(memoryId);
+        Assert.IsType<RelationshipId>(relationshipId);
+        Assert.NotEqual(memoryId.GetType(), relationshipId.GetType());
+    }
+
+    [Fact]
+    public void IdTypes_CanBeStoredInDictionary()
+    {
+        var dict = new Dictionary<MemoryId, string>();
+        var id1 = MemoryId.New();
+        var id2 = MemoryId.New();
+
+        dict[id1] = "First";
+        dict[id2] = "Second";
+
+        Assert.Equal("First", dict[id1]);
+        Assert.Equal("Second", dict[id2]);
+    }
+
+    [Fact]
+    public void IdTypes_WorkInHashSet()
+    {
+        var set = new HashSet<MemoryId>();
+        var id = MemoryId.New();
+
+        set.Add(id);
+        set.Add(id); // Adding same ID again
+
+        Assert.Single(set);
+        Assert.Contains(id, set);
+    }
+
+    #endregion
+}

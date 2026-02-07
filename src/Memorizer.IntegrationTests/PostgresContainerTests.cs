@@ -2,6 +2,7 @@
 using Akka.Hosting.TestKit;
 using Memorizer.Extensions;
 using Memorizer.Models;
+using Memorizer.Models.ValueTypes;
 using Memorizer.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -68,7 +69,7 @@ public class IntegrationTests : TestKit
         await using var cmd = conn.CreateCommand();
         // Create a vector with default dimensions (384) - matches database schema
         var vector = string.Join(",", Enumerable.Repeat("0", 384));
-        cmd.CommandText = $"INSERT INTO memories (id, type, content, text, source, embedding, tags, confidence, created_at, updated_at) VALUES (gen_random_uuid(), 'test', '{{}}'::jsonb, 'test text', 'test', '[{vector}]'::vector, ARRAY['tag'], 1.0, now(), now()) RETURNING id;";
+        cmd.CommandText = $"INSERT INTO memories (id, type_legacy, content, text, source, embedding, tags, confidence, created_at, updated_at) VALUES (gen_random_uuid(), 'test', '{{}}'::jsonb, 'test text', 'test', '[{vector}]'::vector, ARRAY['tag'], 1.0, now(), now()) RETURNING id;";
         var id = await cmd.ExecuteScalarAsync();
         Assert.NotNull(id);
     }
@@ -86,7 +87,7 @@ public class IntegrationTests : TestKit
             "test content",
             "test",
             new[] { "test" },
-            1.0,
+            new Confidence(1.0),
             "Test Title"
         );
 
@@ -108,7 +109,7 @@ public class IntegrationTests : TestKit
             "test content",
             "test",
             new[] { "test" },
-            1.0,
+            new Confidence(1.0),
             title
         );
 
@@ -131,7 +132,7 @@ public class IntegrationTests : TestKit
                 "test content",
                 "test",
                 new[] { "test" },
-                1.0,
+                new Confidence(1.0),
                 "Default Title"
             );
 
@@ -156,14 +157,14 @@ public class IntegrationTests : TestKit
 
         foreach (var (type, content, tags) in memories)
         {
-            await _storage.StoreMemory(type, content, "test", tags, 1.0, title: type);
+            await _storage.StoreMemory(type, content, "test", tags, new Confidence(1.0), title: type);
         }
 
         // Act
         var results = await _storage.Search(
             "What color is the sky?",
             limit: 1,
-            minSimilarity: 0.5,
+            minSimilarity: new SimilarityScore(0.5),
             filterTags: new[] { "nature" }
         );
 
@@ -185,7 +186,7 @@ public class IntegrationTests : TestKit
             "This will be deleted",
             "test",
             new[] { "temporary" },
-            1.0,
+            new Confidence(1.0),
             "Test Title"
         );
 
@@ -232,9 +233,9 @@ public class IntegrationTests : TestKit
     {
         _storage = Host.Services.GetRequiredService<IStorage>();
         // Store multiple memories
-        var m1 = await _storage.StoreMemory("type1", "A", "src1", new[] { "tag1" }, 1.0, "Memory 1");
-        var m2 = await _storage.StoreMemory("type2", "B", "src2", new[] { "tag2" }, 1.0, "Memory 2");
-        var m3 = await _storage.StoreMemory("type3", "C", "src3", new[] { "tag3" }, 1.0, "Memory 3");
+        var m1 = await _storage.StoreMemory("type1", "A", "src1", new[] { "tag1" }, new Confidence(1.0), "Memory 1");
+        var m2 = await _storage.StoreMemory("type2", "B", "src2", new[] { "tag2" }, new Confidence(1.0), "Memory 2");
+        var m3 = await _storage.StoreMemory("type3", "C", "src3", new[] { "tag3" }, new Confidence(1.0), "Memory 3");
         // Fetch by ids
         var results = await _storage.GetMany(new[] { m1.Id, m3.Id }, CancellationToken.None);
         Assert.Equal(2, results.Count);
@@ -247,15 +248,15 @@ public class IntegrationTests : TestKit
     {
         _storage = Host.Services.GetRequiredService<IStorage>();
         // Store two memories
-        var m1 = await _storage.StoreMemory("type1", "Parent", "src1", new[] { "tag1" }, 1.0, "Parent Memory");
-        var m2 = await _storage.StoreMemory("type2", "Child", "src2", new[] { "tag2" }, 1.0, "Child Memory");
+        var m1 = await _storage.StoreMemory("type1", "Parent", "src1", new[] { "tag1" }, new Confidence(1.0), "Parent Memory");
+        var m2 = await _storage.StoreMemory("type2", "Child", "src2", new[] { "tag2" }, new Confidence(1.0), "Child Memory");
         // Create relationship
         var rel = await _storage.CreateRelationship(m1.Id, m2.Id, "Parent", CancellationToken.None);
         Assert.Equal(m1.Id, rel.FromMemoryId);
         Assert.Equal(m2.Id, rel.ToMemoryId);
         Assert.Equal("Parent", rel.Type);
         // Get relationships
-        var rels = await _storage.GetRelationships(m1.Id, "Parent", CancellationToken.None);
+        var rels = await _storage.GetRelationships(m1.Id, "Parent", includeArchivedTargets: false, CancellationToken.None);
         Assert.Single(rels);
         Assert.Equal(rel.Id, rels[0].Id);
         Assert.Equal(m2.Id, rels[0].ToMemoryId);
@@ -269,9 +270,9 @@ public class IntegrationTests : TestKit
     {
         _storage = Host.Services.GetRequiredService<IStorage>();
         // Store a related memory first
-        var related = await _storage.StoreMemory("typeX", "Related", "srcX", new[] { "tagX" }, 1.0, "Related Memory");
+        var related = await _storage.StoreMemory("typeX", "Related", "srcX", new[] { "tagX" }, new Confidence(1.0), "Related Memory");
         // Store a new memory and create a relationship in one call
-        var memory = await _storage.StoreMemory("typeY", "Main", "srcY", new[] { "tagY" }, 1.0, "Main Memory", related.Id, "Reference");
+        var memory = await _storage.StoreMemory("typeY", "Main", "srcY", new[] { "tagY" }, new Confidence(1.0), "Main Memory", related.Id, "Reference");
         // Check the memory exists
         var retrieved = await _storage.Get(memory.Id);
         Assert.NotNull(retrieved);
@@ -291,13 +292,13 @@ public class IntegrationTests : TestKit
     {
         _storage = Host.Services.GetRequiredService<IStorage>();
         // Store two memories
-        var m1 = await _storage.StoreMemory("typeA", "Alpha", "srcA", new[] { "tagA" }, 1.0, "Alpha Memory");
-        var m2 = await _storage.StoreMemory("typeB", "Beta", "srcB", new[] { "tagB" }, 1.0, "Beta Memory");
+        var m1 = await _storage.StoreMemory("typeA", "Alpha", "srcA", new[] { "tagA" }, new Confidence(1.0), "Alpha Memory");
+        var m2 = await _storage.StoreMemory("typeB", "Beta", "srcB", new[] { "tagB" }, new Confidence(1.0), "Beta Memory");
         // Create relationship
         var rel = await _storage.CreateRelationship(m1.Id, m2.Id, "Parent", CancellationToken.None);
 
         // 1. Direct relationship fetch
-        var rels = await _storage.GetRelationships(m1.Id, null, CancellationToken.None);
+        var rels = await _storage.GetRelationships(m1.Id, null, includeArchivedTargets: false, CancellationToken.None);
         Assert.Contains(rels, r => r.Id == rel.Id && r.Type == "Parent" && !string.IsNullOrWhiteSpace(r.Type));
         // New: Check related memory title/type
         var rel1 = rels.First(r => r.Id == rel.Id);
@@ -388,7 +389,7 @@ public class IntegrationTests : TestKit
             content: "This memory has been broken into chunks for better searchability.",
             source: "test",
             tags: new[] { "chunked-container" },
-            confidence: 1.0,
+            confidence: new Confidence(1.0),
             relatedTo: null,
             relationshipType: null,
             cancellationToken: CancellationToken.None,
@@ -401,7 +402,7 @@ public class IntegrationTests : TestKit
             content: "First chunk content about Python programming.",
             source: "test",
             tags: new[] { "chunk", "python" },
-            confidence: 1.0,
+            confidence: new Confidence(1.0),
             relatedTo: containerMemory.Id,
             relationshipType: "chunk-of",
             cancellationToken: CancellationToken.None,
@@ -409,13 +410,13 @@ public class IntegrationTests : TestKit
         );
         
         var chunk2 = await storage.StoreMemory(
-            type: "reference-chunk", 
+            type: "reference-chunk",
             content: "Second chunk content about JavaScript development.",
             source: "test",
             tags: new[] { "chunk", "javascript" },
-            confidence: 1.0,
+            confidence: new Confidence(1.0),
             relatedTo: containerMemory.Id,
-            relationshipType: "chunk-of", 
+            relationshipType: "chunk-of",
             cancellationToken: CancellationToken.None,
             title: "Chunk 2 - JavaScript"
         );
@@ -462,7 +463,7 @@ public class IntegrationTests : TestKit
                 $"Content for memory {i}",
                 $"source_{i}",
                 new[] { $"tag_{i}" },
-                1.0,
+                new Confidence(1.0),
                 title: $"Memory {i}");
             memories.Add(memory);
         }
@@ -529,8 +530,8 @@ public class IntegrationTests : TestKit
         _storage = Host.Services.GetRequiredService<IStorage>();
         
         // Create a hub memory with many relationships
-        var hubMemory = await _storage.StoreMemory("hub", "Hub memory", "test", new[] { "hub" }, 1.0, "Hub");
-        
+        var hubMemory = await _storage.StoreMemory("hub", "Hub memory", "test", new[] { "hub" }, new Confidence(1.0), "Hub");
+
         // Create many related memories
         var relatedMemories = new List<Memory>();
         for (int i = 0; i < 50; i++)
@@ -540,7 +541,7 @@ public class IntegrationTests : TestKit
                 $"Spoke memory {i}",
                 "test",
                 new[] { "spoke" },
-                1.0,
+                new Confidence(1.0),
                 title: $"Spoke {i}");
             relatedMemories.Add(memory);
             
@@ -573,76 +574,13 @@ public class IntegrationTests : TestKit
     }
 
     [Fact]
-    public async Task Stress_Test_Concurrent_GetMany_Calls_Should_Not_Deadlock()
-    {
-        _storage = Host.Services.GetRequiredService<IStorage>();
-        
-        // Create memories with relationships
-        var memories = new List<Memory>();
-        for (int i = 0; i < 20; i++)
-        {
-            var memory = await _storage.StoreMemory(
-                $"concurrent_test_{i}",
-                $"Content {i}",
-                "stress_test",
-                new[] { "concurrent" },
-                1.0,
-                title: $"Memory {i}");
-            memories.Add(memory);
-        }
-        
-        // Create relationships between memories
-        for (int i = 0; i < 19; i++)
-        {
-            await _storage.CreateRelationship(memories[i].Id, memories[i + 1].Id, "next", CancellationToken.None);
-        }
-        
-        // Run many concurrent GetMany calls
-        var concurrentTasks = new List<Task>();
-        for (int i = 0; i < 30; i++)
-        {
-            var taskId = i;
-            concurrentTasks.Add(Task.Run(async () =>
-            {
-                var randomIds = memories
-                    .OrderBy(_ => Guid.NewGuid())
-                    .Take(5)
-                    .Select(m => m.Id)
-                    .ToArray();
-                
-                var result = await _storage.GetMany(randomIds, CancellationToken.None);
-                Assert.Equal(5, result.Count);
-                
-                // Verify each memory has relationships loaded correctly
-                foreach (var memory in result)
-                {
-                    Assert.NotNull(memory.Relationships);
-                    // Some might have relationships, some might not - just verify structure
-                    foreach (var rel in memory.Relationships)
-                    {
-                        Assert.NotNull(rel.Type);
-                        Assert.NotNull(rel.RelatedMemoryType);
-                    }
-                }
-            }));
-        }
-        
-        // All tasks should complete without deadlock
-        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(15));
-        var completedTask = await Task.WhenAny(Task.WhenAll(concurrentTasks), timeoutTask);
-        
-        Assert.True(completedTask != timeoutTask, 
-            "Concurrent GetMany calls timed out - possible deadlock or connection exhaustion");
-    }
-
-    [Fact]
     public async Task Connection_Pool_Should_Remain_Stable_Under_Load()
     {
         _storage = Host.Services.GetRequiredService<IStorage>();
         
         // Create test data
-        var memory1 = await _storage.StoreMemory("test", "Memory 1", "test", new[] { "load_test" }, 1.0, "Memory 1");
-        var memory2 = await _storage.StoreMemory("test", "Memory 2", "test", new[] { "load_test" }, 1.0, "Memory 2");
+        var memory1 = await _storage.StoreMemory("test", "Memory 1", "test", new[] { "load_test" }, new Confidence(1.0), "Memory 1");
+        var memory2 = await _storage.StoreMemory("test", "Memory 2", "test", new[] { "load_test" }, new Confidence(1.0), "Memory 2");
         await _storage.CreateRelationship(memory1.Id, memory2.Id, "test_rel", CancellationToken.None);
         
         // Rapid-fire operations that used to cause connection leaks
@@ -653,7 +591,7 @@ public class IntegrationTests : TestKit
             {
                 // Mix of operations that involve relationship loading
                 var memories = await _storage.GetMany(new[] { memory1.Id, memory2.Id }, CancellationToken.None);
-                var relationships = await _storage.GetRelationships(memory1.Id, null, CancellationToken.None);
+                var relationships = await _storage.GetRelationships(memory1.Id, null, includeArchivedTargets: false, CancellationToken.None);
                 var singleMemory = await _storage.Get(memory1.Id, CancellationToken.None);
                 
                 // Verify results

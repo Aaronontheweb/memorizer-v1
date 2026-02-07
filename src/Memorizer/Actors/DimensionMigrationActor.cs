@@ -5,6 +5,8 @@ using Akka.Streams;
 using Memorizer.Models;
 using Memorizer.Services;
 using Memorizer.Settings;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Memorizer.Actors;
@@ -27,9 +29,8 @@ namespace Memorizer.Actors;
 /// </summary>
 public sealed class DimensionMigrationActor : ReceiveActor
 {
+    private readonly IServiceProvider _serviceProvider;
     private readonly NpgsqlDataSource _dataSource;
-    private readonly IEmbeddingDimensionService _dimensionService;
-    private readonly EmbeddingSettings _embeddingSettings;
     private readonly IRequiredActor<EmbeddingRegenerationActorKey> _embeddingRegenerationActor;
     private readonly ILoggingAdapter _logger;
     private readonly IMaterializer _materializer;
@@ -40,24 +41,26 @@ public sealed class DimensionMigrationActor : ReceiveActor
     // Progress manager - handles subscriber management and job state
     private ProgressJobManager? _jobManager;
 
+    // Current scope for the running job
+    private IServiceScope? _currentScope;
+
     // Current migration state
     private Guid? _currentMigrationId;
     private DimensionMigrationRecord? _currentMigration;
     private int _newDimensions;
     private int _oldDimensions;
     private string? _oldModel;
+    private string? _newModel;
     private DateTime _startTime;
     private string _requestedBy = "system";
 
     public DimensionMigrationActor(
+        IServiceProvider serviceProvider,
         NpgsqlDataSource dataSource,
-        IEmbeddingDimensionService dimensionService,
-        EmbeddingSettings embeddingSettings,
         IRequiredActor<EmbeddingRegenerationActorKey> embeddingRegenerationActor)
     {
+        _serviceProvider = serviceProvider;
         _dataSource = dataSource;
-        _dimensionService = dimensionService;
-        _embeddingSettings = embeddingSettings;
         _embeddingRegenerationActor = embeddingRegenerationActor;
         _logger = Context.GetLogger();
         _materializer = Context.System.Materializer();
@@ -157,12 +160,20 @@ public sealed class DimensionMigrationActor : ReceiveActor
 
         try
         {
+            // Create a scope for the duration of this migration
+            _currentScope = _serviceProvider.CreateScope();
+            var dimensionService = _currentScope.ServiceProvider.GetRequiredService<IEmbeddingDimensionService>();
+            var embeddingSettings = _currentScope.ServiceProvider.GetRequiredService<IOptionsSnapshot<EmbeddingSettings>>().Value;
+            _newModel = embeddingSettings.Model;
+
             // Validate that there's actually a mismatch to migrate
-            var validation = await _dimensionService.ValidateAsync();
+            var validation = await dimensionService.ValidateAsync();
 
             if (!validation.RequiresMigration)
             {
                 _logger.Info("No dimension migration required - all sources match");
+                _currentScope?.Dispose();
+                _currentScope = null;
                 sender.Tell(new DimensionMigrationStatus(
                     IsRunning: false,
                     Status: "No migration required",
@@ -177,6 +188,8 @@ public sealed class DimensionMigrationActor : ReceiveActor
             if (!validation.DetectedModelDimensions.HasValue)
             {
                 _logger.Error("Cannot start migration: embedding API unavailable, cannot detect model dimensions");
+                _currentScope?.Dispose();
+                _currentScope = null;
                 sender.Tell(new DimensionMigrationStatus(
                     IsRunning: false,
                     Status: "Failed",
@@ -193,6 +206,8 @@ public sealed class DimensionMigrationActor : ReceiveActor
             if (!await TryAcquireDistributedLock())
             {
                 _logger.Warning("Could not acquire migration lock - another migration may be in progress");
+                _currentScope?.Dispose();
+                _currentScope = null;
                 sender.Tell(new DimensionMigrationStatus(
                     IsRunning: false,
                     Status: "Failed",
@@ -211,7 +226,7 @@ public sealed class DimensionMigrationActor : ReceiveActor
             // Create migration record
             _currentMigrationId = await CreateMigrationRecord(
                 _oldModel, _oldDimensions,
-                _embeddingSettings.Model, _newDimensions,
+                _newModel!, _newDimensions,
                 msg.RequestedBy);
 
             _startTime = DateTime.UtcNow;
@@ -235,7 +250,7 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 OldDimensions: _oldDimensions,
                 NewDimensions: _newDimensions,
                 OldModel: _oldModel,
-                NewModel: _embeddingSettings.Model,
+                NewModel: _newModel,
                 TotalMemories: totalCount,
                 MigrationId: _currentMigrationId,
                 StartTime: _startTime,
@@ -319,6 +334,11 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 return;
             }
 
+            // Create a scope for the duration of this migration
+            _currentScope = _serviceProvider.CreateScope();
+            var embeddingSettings = _currentScope.ServiceProvider.GetRequiredService<IOptionsSnapshot<EmbeddingSettings>>().Value;
+            _newModel = embeddingSettings.Model;
+
             _currentMigrationId = msg.MigrationId;
             _currentMigration = migration;
             _newDimensions = migration.NewDimensions;
@@ -373,6 +393,8 @@ public sealed class DimensionMigrationActor : ReceiveActor
             _logger.Error(ex, "Failed to resume migration: {0}", ex.Message);
 
             await ReleaseDistributedLock();
+            _currentScope?.Dispose();
+            _currentScope = null;
 
             sender.Tell(new DimensionMigrationStatus(
                 IsRunning: false,
@@ -460,8 +482,12 @@ public sealed class DimensionMigrationActor : ReceiveActor
             // Restore indexes and NOT NULL constraints now that all embeddings are regenerated
             await RestoreConstraintsAndIndexes(_newDimensions);
 
-            // Update embedding_config with new model/dimensions
-            await _dimensionService.UpdateActiveConfigAsync(_embeddingSettings.Model, _newDimensions);
+            // Update embedding_config with new model/dimensions using scoped service
+            if (_currentScope != null)
+            {
+                var dimensionService = _currentScope.ServiceProvider.GetRequiredService<IEmbeddingDimensionService>();
+                await dimensionService.UpdateActiveConfigAsync(_newModel!, _newDimensions);
+            }
 
             // Complete the migration record
             await CompleteMigration(
@@ -477,7 +503,7 @@ public sealed class DimensionMigrationActor : ReceiveActor
                 MigrationId: _currentMigrationId.Value,
                 OldModel: migration?.OldModel ?? "unknown",
                 OldDimensions: migration?.OldDimensions ?? 0,
-                NewModel: _embeddingSettings.Model,
+                NewModel: _newModel ?? "unknown",
                 NewDimensions: _newDimensions,
                 TotalProcessed: progress.TotalProcessed,
                 Successful: progress.TotalSuccessful,
@@ -502,6 +528,8 @@ public sealed class DimensionMigrationActor : ReceiveActor
             _currentMigrationId = null;
             _currentMigration = null;
             _jobManager = null;
+            _currentScope?.Dispose();
+            _currentScope = null;
             Become(Idle);
         }
     }
@@ -527,7 +555,7 @@ public sealed class DimensionMigrationActor : ReceiveActor
             OldDimensions: _currentMigration?.OldDimensions,
             NewDimensions: _newDimensions,
             OldModel: _currentMigration?.OldModel,
-            NewModel: _embeddingSettings.Model,
+            NewModel: _newModel,
             TotalMemories: _currentMigration?.TotalMemories ?? 0,
             Processed: _currentMigration?.MemoriesProcessed ?? 0,
             Successful: _currentMigration?.MemoriesSuccessful ?? 0,
@@ -657,7 +685,7 @@ public sealed class DimensionMigrationActor : ReceiveActor
     private async Task CompleteMigration(
         Guid migrationId,
         int processed, int successful, int failed,
-        List<Guid> failedIds)
+        List<MemoryId> failedIds)
     {
         const string sql = @"
             UPDATE embedding_dimension_migrations
@@ -675,7 +703,7 @@ public sealed class DimensionMigrationActor : ReceiveActor
         cmd.Parameters.AddWithValue("processed", processed);
         cmd.Parameters.AddWithValue("successful", successful);
         cmd.Parameters.AddWithValue("failed", failed);
-        cmd.Parameters.AddWithValue("failedIds", failedIds.ToArray());
+        cmd.Parameters.AddWithValue("failedIds", failedIds.Select(id => id.Value).ToArray());
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -841,13 +869,4 @@ public sealed class DimensionMigrationActor : ReceiveActor
 
     #endregion
 
-    public static Props Props(
-        NpgsqlDataSource dataSource,
-        IEmbeddingDimensionService dimensionService,
-        EmbeddingSettings embeddingSettings,
-        IRequiredActor<EmbeddingRegenerationActorKey> embeddingRegenerationActor)
-    {
-        return Akka.Actor.Props.Create(() => new DimensionMigrationActor(
-            dataSource, dimensionService, embeddingSettings, embeddingRegenerationActor));
-    }
 }

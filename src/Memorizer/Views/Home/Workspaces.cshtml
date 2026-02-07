@@ -1,0 +1,379 @@
+@{
+    ViewData["Title"] = "Workspaces";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>
+        <i class="fas fa-folder me-2"></i>
+        Workspaces
+    </h2>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createWorkspaceModal">
+        <i class="fas fa-plus me-2"></i>
+        New Workspace
+    </button>
+</div>
+
+<!-- Loading spinner -->
+<div id="loadingSpinner" class="d-flex justify-content-center py-5">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading workspaces...</span>
+    </div>
+</div>
+
+<!-- User workspaces section -->
+<div id="workspacesList" style="display: none;">
+    <div id="userWorkspaces"></div>
+
+    <!-- System workspaces divider -->
+    <div id="systemWorkspacesSection" style="display: none;">
+        <hr class="my-4">
+        <h5 class="text-muted mb-3">
+            <i class="fas fa-lock me-2"></i>
+            System Workspaces
+        </h5>
+        <div id="systemWorkspaces"></div>
+    </div>
+</div>
+
+<!-- Empty state -->
+<div id="emptyState" style="display: none;" class="text-center py-5">
+    <i class="fas fa-folder-open fa-3x text-muted mb-3"></i>
+    <h5 class="text-muted">No Workspaces Yet</h5>
+    <p class="text-muted">Create your first workspace to start organizing memories.</p>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createWorkspaceModal">
+        <i class="fas fa-plus me-2"></i>
+        Create Workspace
+    </button>
+</div>
+
+<!-- Create Workspace Modal -->
+<div class="modal fade" id="createWorkspaceModal" tabindex="-1" aria-labelledby="createWorkspaceModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createWorkspaceModalLabel">
+                    <i class="fas fa-folder-plus me-2"></i>
+                    Create Workspace
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createWorkspaceForm">
+                    <div class="mb-3">
+                        <label for="workspaceName" class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="workspaceName" placeholder="e.g., Engineering, Marketing" required>
+                        <div class="form-text">A unique name for your workspace</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="workspaceDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="workspaceDescription" rows="3" placeholder="Optional description of this workspace's purpose"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createWorkspaceBtn" onclick="createWorkspace()">
+                    <i class="fas fa-plus me-2"></i>
+                    Create Workspace
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Workspace Modal -->
+<div class="modal fade" id="editWorkspaceModal" tabindex="-1" aria-labelledby="editWorkspaceModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editWorkspaceModalLabel">
+                    <i class="fas fa-edit me-2"></i>
+                    Edit Workspace
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editWorkspaceForm">
+                    <input type="hidden" id="editWorkspaceId">
+                    <div class="mb-3">
+                        <label for="editWorkspaceName" class="form-label">Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editWorkspaceName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editWorkspaceDescription" class="form-label">Description</label>
+                        <textarea class="form-control" id="editWorkspaceDescription" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="updateWorkspaceBtn" onclick="updateWorkspace()">
+                    <i class="fas fa-save me-2"></i>
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteWorkspaceModal" tabindex="-1" aria-labelledby="deleteWorkspaceModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteWorkspaceModalLabel">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Delete Workspace
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="deleteWorkspaceId">
+                <p>Are you sure you want to delete <strong id="deleteWorkspaceName"></strong>?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <span id="deleteWarningText">This will move memories to Unfiled and delete all projects.</span>
+                </div>
+                <p class="text-muted small">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn" onclick="deleteWorkspace()">
+                    <i class="fas fa-trash me-2"></i>
+                    Delete Workspace
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+let workspaces = [];
+
+document.addEventListener('DOMContentLoaded', loadWorkspaces);
+
+async function loadWorkspaces() {
+    try {
+        const response = await fetch('/api/workspace?includeSystem=true');
+        if (!response.ok) throw new Error('Failed to load workspaces');
+
+        const data = await response.json();
+        workspaces = data.workspaces;
+
+        const spinner = document.getElementById('loadingSpinner');
+        spinner.classList.remove('d-flex');
+        spinner.style.display = 'none';
+
+        if (workspaces.length === 0) {
+            document.getElementById('emptyState').style.display = 'block';
+            return;
+        }
+
+        renderWorkspaces();
+        document.getElementById('workspacesList').style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading workspaces:', error);
+        const spinner = document.getElementById('loadingSpinner');
+        spinner.classList.remove('d-flex');
+        spinner.style.display = 'none';
+        document.getElementById('emptyState').style.display = 'block';
+    }
+}
+
+function renderWorkspaces() {
+    const userWorkspaces = workspaces.filter(w => !w.isSystem);
+    const systemWorkspaces = workspaces.filter(w => w.isSystem);
+
+    const userContainer = document.getElementById('userWorkspaces');
+    userContainer.innerHTML = userWorkspaces.map(w => renderWorkspaceCard(w, false)).join('');
+
+    if (systemWorkspaces.length > 0) {
+        const systemContainer = document.getElementById('systemWorkspaces');
+        systemContainer.innerHTML = systemWorkspaces.map(w => renderWorkspaceCard(w, true)).join('');
+        document.getElementById('systemWorkspacesSection').style.display = 'block';
+    }
+}
+
+function renderWorkspaceCard(workspace, isSystem) {
+    const icon = isSystem ? 'fa-lock' : 'fa-folder';
+    const description = workspace.description || '<span class="text-muted fst-italic">No description</span>';
+
+    const actionButtons = isSystem ? `
+        <a href="/workspaces/${workspace.id}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-eye me-1"></i>View
+        </a>
+    ` : `
+        <a href="/workspaces/${workspace.id}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-eye me-1"></i>View
+        </a>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openEditModal('${workspace.id}')">
+            <i class="fas fa-edit me-1"></i>Edit
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="openDeleteModal('${workspace.id}')">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+
+    return `
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <h5 class="card-title mb-1">
+                            <i class="fas ${icon} me-2 text-primary"></i>
+                            <a href="/workspaces/${workspace.id}" class="text-decoration-none">${escapeHtml(workspace.name)}</a>
+                            <span class="badge bg-secondary ms-2">${workspace.memoryCount} memories</span>
+                        </h5>
+                        <p class="card-text text-muted mb-2">${description}</p>
+                        <small class="text-muted">
+                            ${workspace.projectCount} project${workspace.projectCount !== 1 ? 's' : ''} &bull;
+                            Created ${formatDate(workspace.createdAt)}
+                        </small>
+                    </div>
+                    <div class="btn-group">
+                        ${actionButtons}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function openEditModal(workspaceId) {
+    const workspace = workspaces.find(w => w.id === workspaceId);
+    if (!workspace) return;
+
+    document.getElementById('editWorkspaceId').value = workspace.id;
+    document.getElementById('editWorkspaceName').value = workspace.name;
+    document.getElementById('editWorkspaceDescription').value = workspace.description || '';
+
+    new bootstrap.Modal(document.getElementById('editWorkspaceModal')).show();
+}
+
+function openDeleteModal(workspaceId) {
+    const workspace = workspaces.find(w => w.id === workspaceId);
+    if (!workspace) return;
+
+    document.getElementById('deleteWorkspaceId').value = workspace.id;
+    document.getElementById('deleteWorkspaceName').textContent = workspace.name;
+    document.getElementById('deleteWarningText').textContent =
+        `This will move ${workspace.memoryCount} memories to Unfiled and delete ${workspace.projectCount} projects.`;
+
+    new bootstrap.Modal(document.getElementById('deleteWorkspaceModal')).show();
+}
+
+async function createWorkspace() {
+    const name = document.getElementById('workspaceName').value.trim();
+    const description = document.getElementById('workspaceDescription').value.trim();
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    const btn = document.getElementById('createWorkspaceBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/workspace', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description: description || null })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to create workspace');
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('createWorkspaceModal')).hide();
+        document.getElementById('workspaceName').value = '';
+        document.getElementById('workspaceDescription').value = '';
+
+        loadWorkspaces();
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function updateWorkspace() {
+    const id = document.getElementById('editWorkspaceId').value;
+    const name = document.getElementById('editWorkspaceName').value.trim();
+    const description = document.getElementById('editWorkspaceDescription').value.trim();
+
+    if (!name) {
+        alert('Name is required');
+        return;
+    }
+
+    const btn = document.getElementById('updateWorkspaceBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(`/api/workspace/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description: description || null })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to update workspace');
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('editWorkspaceModal')).hide();
+        loadWorkspaces();
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function deleteWorkspace() {
+    const id = document.getElementById('deleteWorkspaceId').value;
+
+    const btn = document.getElementById('confirmDeleteBtn');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(`/api/workspace/${id}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to delete workspace');
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('deleteWorkspaceModal')).hide();
+        loadWorkspaces();
+
+    } catch (error) {
+        alert('Error: ' + error.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+</script>
+}

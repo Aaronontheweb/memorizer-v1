@@ -14,7 +14,11 @@ public class IntegrationTestFixture : IAsyncLifetime
     public readonly PostgreSqlContainer PostgresContainer;
     public readonly IContainer OllamaContainer;
     
-    public string PostgresConnectionString => PostgresContainer.GetConnectionString();
+    // Limit pool size to prevent connection exhaustion.
+    // Each test class creates its own IServiceProvider with its own NpgsqlDataSource/pool.
+    // Test classes must implement IDisposable to properly release connections.
+    public string PostgresConnectionString =>
+        PostgresContainer.GetConnectionString() + ";Maximum Pool Size=10;Minimum Pool Size=0;";
     public string OllamaApiUrl => $"http://{OllamaContainer.Hostname}:{OllamaContainer.GetMappedPublicPort(11434)}";
 
     public IntegrationTestFixture()

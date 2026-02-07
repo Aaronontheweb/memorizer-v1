@@ -1,0 +1,555 @@
+@{
+    ViewData["Title"] = "LLM Configuration";
+}
+
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="h3 mb-1">
+                    <i class="fas fa-plug me-2 text-primary"></i>
+                    LLM Configuration
+                </h1>
+                <p class="text-muted mb-0">Configure embedding and Memorizer Agent LLM providers</p>
+            </div>
+            <div>
+                <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>
+                    Back to Memories
+                </a>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingSpinner" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading providers...</span>
+            </div>
+            <p class="text-muted mt-2">Loading provider configuration...</p>
+        </div>
+
+        <!-- Provider Content -->
+        <div id="providerContent" style="display: none;">
+            <!-- Embedding Provider Section -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-vector-square me-2"></i>
+                        Embedding Provider
+                    </h5>
+                    <span id="embeddingStatus" class="badge bg-secondary">Loading...</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        The embedding provider generates vector embeddings for semantic search.
+                        This is typically a smaller, faster model optimized for encoding text.
+                    </p>
+                    <div id="embeddingProviderList">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memorizer Agent Section -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-robot me-2"></i>
+                        Memorizer Agent
+                    </h5>
+                    <span id="agentStatus" class="badge bg-secondary">Loading...</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">
+                        The Memorizer Agent is the reasoning LLM used for tasks like title generation,
+                        content analysis, and workflow recommendations. This is typically a more capable model.
+                    </p>
+                    <div id="agentProviderList">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info Card -->
+            <div class="card border-info">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-info-circle me-2"></i>
+                        About Provider Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li><strong>Embedding Provider</strong> and <strong>Memorizer Agent</strong> are configured independently.</li>
+                        <li>You can use the same Ollama instance with different models for each provider.</li>
+                        <li>Changes to provider settings require an application restart to take effect.</li>
+                        <li>Provider settings are stored in the database and persist across restarts.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="errorState" style="display: none;" class="alert alert-danger">
+            <h5><i class="fas fa-exclamation-triangle me-2"></i>Configuration Load Error</h5>
+            <p class="mb-0">Unable to load provider configuration. Please check the logs for details.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Provider Modal -->
+<div class="modal fade" id="editProviderModal" tabindex="-1" aria-labelledby="editProviderModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editProviderModalLabel">Edit Provider</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editProviderForm">
+                    <input type="hidden" id="editProviderType">
+                    <input type="hidden" id="editProviderName">
+
+                    <div class="mb-3">
+                        <label for="editDisplayName" class="form-label">Display Name</label>
+                        <input type="text" class="form-control" id="editDisplayName" placeholder="e.g., Ollama Local">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="editApiUrl" class="form-label">API URL</label>
+                        <div class="input-group">
+                            <input type="url" class="form-control" id="editApiUrl" placeholder="http://localhost:11434">
+                            <button class="btn btn-outline-secondary" type="button" onclick="loadModels()">
+                                <i class="fas fa-sync-alt me-1"></i>Load Models
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="editModel" class="form-label">Model</label>
+                        <div class="input-group">
+                            <select class="form-select" id="editModelSelect" style="display: none;" onchange="onModelSelect()">
+                                <option value="">-- Select a model --</option>
+                            </select>
+                            <input type="text" class="form-control" id="editModel" placeholder="e.g., all-minilm:33m-l12-v2-fp16">
+                            <button class="btn btn-outline-secondary" type="button" onclick="toggleModelInput()">
+                                <i class="fas fa-keyboard" id="modelInputToggleIcon"></i>
+                            </button>
+                        </div>
+                        <div class="form-text" id="modelHelpText">Click "Load Models" to see available models from the server</div>
+                    </div>
+
+                    <div class="mb-3" id="timeoutGroup">
+                        <label for="editTimeout" class="form-label">Timeout</label>
+                        <input type="text" class="form-control" id="editTimeout" placeholder="00:02:00">
+                        <div class="form-text">Format: HH:MM:SS (e.g., 00:02:00 for 2 minutes)</div>
+                    </div>
+
+                    <!-- Test Connection Result -->
+                    <div id="testResultContainer" style="display: none;">
+                        <div id="testResult" class="alert mb-0"></div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-info" onclick="testConnection()" id="testBtn">
+                    <i class="fas fa-plug me-1"></i>Test Connection
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveProvider()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+let providersData = null;
+let availableModels = [];
+let useModelDropdown = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadProviders();
+});
+
+async function loadProviders() {
+    try {
+        const response = await fetch('/settings/api/providers');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        providersData = await response.json();
+        displayProviders(providersData);
+
+    } catch (error) {
+        console.error('Error loading providers:', error);
+        showError();
+    }
+}
+
+function displayProviders(data) {
+    // Hide loading, show content
+    document.getElementById('loadingSpinner').style.display = 'none';
+    document.getElementById('providerContent').style.display = 'block';
+
+    // Display embedding providers
+    displayProviderList('embeddingProviderList', 'embeddingStatus', data.embeddingProviders, 'embedding');
+
+    // Display agent providers
+    displayProviderList('agentProviderList', 'agentStatus', data.agentProviders, 'memorizer_agent');
+}
+
+function displayProviderList(containerId, statusId, providers, providerType) {
+    const container = document.getElementById(containerId);
+    const statusBadge = document.getElementById(statusId);
+
+    const activeProvider = providers.find(p => p.isActive);
+    if (activeProvider) {
+        statusBadge.textContent = activeProvider.displayName || activeProvider.providerName;
+        statusBadge.className = 'badge bg-success';
+    } else {
+        statusBadge.textContent = 'Not Configured';
+        statusBadge.className = 'badge bg-warning';
+    }
+
+    if (providers.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-warning mb-0">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                No providers configured. Run database migrations to seed default providers.
+            </div>
+        `;
+        return;
+    }
+
+    let html = '<div class="list-group">';
+    for (const provider of providers) {
+        const isActive = provider.isActive;
+        const config = provider.config || {};
+
+        html += `
+            <div class="list-group-item ${isActive ? 'list-group-item-success' : ''}">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h6 class="mb-1">
+                            ${isActive ? '<i class="fas fa-check-circle text-success me-2"></i>' : ''}
+                            ${escapeHtml(provider.displayName || provider.providerName)}
+                        </h6>
+                        <small class="text-muted d-block">
+                            <strong>Provider:</strong> ${escapeHtml(provider.providerName)}
+                        </small>
+                        <small class="text-muted d-block">
+                            <strong>API URL:</strong> <code>${escapeHtml(config.apiUrl || 'Not set')}</code>
+                        </small>
+                        <small class="text-muted d-block">
+                            <strong>Model:</strong> <code>${escapeHtml(config.model || 'Not set')}</code>
+                        </small>
+                        ${config.timeout ? `<small class="text-muted d-block"><strong>Timeout:</strong> ${escapeHtml(config.timeout)}</small>` : ''}
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="editProvider('${provider.providerType}', '${provider.providerName}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        ${!isActive ? `
+                            <button class="btn btn-sm btn-success" onclick="activateProvider('${provider.providerType}', '${provider.providerName}')">
+                                <i class="fas fa-check me-1"></i>Activate
+                            </button>
+                        ` : `
+                            <span class="badge bg-success">Active</span>
+                        `}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function editProvider(providerType, providerName) {
+    const providers = providerType === 'embedding' ?
+        providersData.embeddingProviders :
+        providersData.agentProviders;
+
+    const provider = providers.find(p => p.providerName === providerName);
+    if (!provider) return;
+
+    const config = provider.config || {};
+
+    document.getElementById('editProviderType').value = providerType;
+    document.getElementById('editProviderName').value = providerName;
+    document.getElementById('editDisplayName').value = provider.displayName || '';
+    document.getElementById('editApiUrl').value = config.apiUrl || '';
+    document.getElementById('editModel').value = config.model || '';
+    document.getElementById('editTimeout').value = config.timeout || '';
+
+    // Reset model dropdown state
+    availableModels = [];
+    useModelDropdown = false;
+    document.getElementById('editModelSelect').style.display = 'none';
+    document.getElementById('editModel').style.display = 'block';
+    document.getElementById('modelHelpText').textContent = 'Click "Load Models" to see available models from the server';
+
+    // Hide test result
+    document.getElementById('testResultContainer').style.display = 'none';
+
+    // Show/hide timeout field based on provider type
+    document.getElementById('timeoutGroup').style.display =
+        providerType === 'memorizer_agent' ? 'block' : 'none';
+
+    document.getElementById('editProviderModalLabel').textContent =
+        `Edit ${providerType === 'embedding' ? 'Embedding' : 'Memorizer Agent'} Provider`;
+
+    const modal = new bootstrap.Modal(document.getElementById('editProviderModal'));
+    modal.show();
+}
+
+async function loadModels() {
+    const apiUrl = document.getElementById('editApiUrl').value;
+    const providerName = document.getElementById('editProviderName').value;
+    const providerType = document.getElementById('editProviderType').value;
+
+    if (!apiUrl) {
+        alert('Please enter an API URL first');
+        return;
+    }
+
+    const modelSelect = document.getElementById('editModelSelect');
+    const helpText = document.getElementById('modelHelpText');
+
+    // Show loading state
+    modelSelect.innerHTML = '<option value="">Loading models...</option>';
+    modelSelect.disabled = true;
+
+    try {
+        const response = await fetch('/settings/api/providers/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ providerType, providerName, apiUrl })
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.models.length > 0) {
+            // Filter models based on provider type
+            // For embedding providers, show only embedding models
+            // For agent providers, show only generation (non-embedding) models
+            const isEmbeddingProvider = providerType === 'embedding';
+            const filteredModels = result.models.filter(m =>
+                isEmbeddingProvider ? m.isLikelyEmbedding : !m.isLikelyEmbedding
+            );
+
+            availableModels = filteredModels;
+
+            // Populate dropdown with filtered models
+            modelSelect.innerHTML = '<option value="">-- Select a model --</option>';
+            for (const model of filteredModels) {
+                const sizeInfo = model.sizeFormatted ? ` (${model.sizeFormatted})` : '';
+                const typeIndicator = model.isLikelyEmbedding ? ' 🔢' : ' 💬';
+                modelSelect.innerHTML += `<option value="${escapeHtml(model.name)}">${escapeHtml(model.name)}${sizeInfo}${typeIndicator}</option>`;
+            }
+
+            // Select current model if it exists
+            const currentModel = document.getElementById('editModel').value;
+            if (currentModel) {
+                modelSelect.value = currentModel;
+            }
+
+            // Show dropdown, hide text input
+            useModelDropdown = true;
+            modelSelect.style.display = 'block';
+            modelSelect.disabled = false;
+            document.getElementById('editModel').style.display = 'none';
+
+            const modelTypeName = isEmbeddingProvider ? 'embedding' : 'generation';
+            const totalModels = result.models.length;
+            helpText.innerHTML = `Showing ${filteredModels.length} ${modelTypeName} models (${totalModels} total). Click the keyboard icon to type manually.`;
+
+        } else {
+            helpText.textContent = result.error || 'No models found. You can still type a model name manually.';
+            modelSelect.style.display = 'none';
+            document.getElementById('editModel').style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Error loading models:', error);
+        helpText.textContent = 'Failed to load models: ' + error.message;
+        modelSelect.style.display = 'none';
+        document.getElementById('editModel').style.display = 'block';
+    }
+}
+
+function onModelSelect() {
+    const select = document.getElementById('editModelSelect');
+    document.getElementById('editModel').value = select.value;
+}
+
+function toggleModelInput() {
+    useModelDropdown = !useModelDropdown;
+    const modelSelect = document.getElementById('editModelSelect');
+    const modelInput = document.getElementById('editModel');
+    const icon = document.getElementById('modelInputToggleIcon');
+
+    if (useModelDropdown && availableModels.length > 0) {
+        modelSelect.style.display = 'block';
+        modelInput.style.display = 'none';
+        icon.className = 'fas fa-keyboard';
+        // Sync value
+        modelSelect.value = modelInput.value;
+    } else {
+        modelSelect.style.display = 'none';
+        modelInput.style.display = 'block';
+        icon.className = 'fas fa-list';
+    }
+}
+
+async function testConnection() {
+    const apiUrl = document.getElementById('editApiUrl').value;
+    const model = document.getElementById('editModel').value;
+    const providerName = document.getElementById('editProviderName').value;
+    const providerType = document.getElementById('editProviderType').value;
+
+    if (!apiUrl) {
+        alert('Please enter an API URL');
+        return;
+    }
+
+    const testBtn = document.getElementById('testBtn');
+    const resultContainer = document.getElementById('testResultContainer');
+    const resultDiv = document.getElementById('testResult');
+
+    // Show loading state
+    testBtn.disabled = true;
+    testBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Testing...';
+    resultContainer.style.display = 'none';
+
+    try {
+        const response = await fetch('/settings/api/providers/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ providerType, providerName, apiUrl, model: model || null })
+        });
+
+        const result = await response.json();
+
+        resultContainer.style.display = 'block';
+        if (result.success) {
+            resultDiv.className = 'alert alert-success mb-0';
+            resultDiv.innerHTML = `<i class="fas fa-check-circle me-2"></i>${escapeHtml(result.message)} <small class="text-muted">(${result.responseTimeMs}ms)</small>`;
+        } else {
+            resultDiv.className = 'alert alert-danger mb-0';
+            resultDiv.innerHTML = `<i class="fas fa-times-circle me-2"></i>${escapeHtml(result.error)}`;
+        }
+    } catch (error) {
+        resultContainer.style.display = 'block';
+        resultDiv.className = 'alert alert-danger mb-0';
+        resultDiv.innerHTML = `<i class="fas fa-times-circle me-2"></i>Test failed: ${escapeHtml(error.message)}`;
+    } finally {
+        testBtn.disabled = false;
+        testBtn.innerHTML = '<i class="fas fa-plug me-1"></i>Test Connection';
+    }
+}
+
+async function saveProvider() {
+    const providerType = document.getElementById('editProviderType').value;
+    const providerName = document.getElementById('editProviderName').value;
+
+    const config = {
+        apiUrl: document.getElementById('editApiUrl').value,
+        model: document.getElementById('editModel').value
+    };
+
+    if (providerType === 'memorizer_agent') {
+        const timeout = document.getElementById('editTimeout').value;
+        if (timeout) {
+            config.timeout = timeout;
+        }
+    }
+
+    // Find current provider to preserve isActive status
+    const providers = providerType === 'embedding' ?
+        providersData.embeddingProviders :
+        providersData.agentProviders;
+    const currentProvider = providers.find(p => p.providerName === providerName);
+
+    try {
+        const response = await fetch('/settings/api/providers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                providerType,
+                providerName,
+                displayName: document.getElementById('editDisplayName').value || null,
+                config,
+                isActive: currentProvider?.isActive || false
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editProviderModal')).hide();
+            loadProviders(); // Reload to show changes
+
+            // Check for dimension mismatch warning
+            if (result.dimensionValidation?.hasMismatch) {
+                showDimensionMismatchWarning(result.dimensionValidation);
+            }
+        } else {
+            alert('Error saving provider: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error saving provider:', error);
+        alert('Error saving provider: ' + error.message);
+    }
+}
+
+async function activateProvider(providerType, providerName) {
+    try {
+        const response = await fetch('/settings/api/providers/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ providerType, providerName })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            loadProviders(); // Reload to show changes
+
+            // Check for dimension mismatch warning
+            if (result.dimensionValidation?.hasMismatch) {
+                showDimensionMismatchWarning(result.dimensionValidation);
+            }
+        } else {
+            alert('Error activating provider: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error activating provider:', error);
+        alert('Error activating provider: ' + error.message);
+    }
+}
+
+function showDimensionMismatchWarning(validation) {
+    const message = `⚠️ Embedding Dimension Mismatch Detected!\n\n` +
+        `${validation.description}\n\n` +
+        `• New model dimensions: ${validation.detectedDimensions || 'Unknown'}\n` +
+        `• Stored dimensions: ${validation.storedDimensions || 'None'}\n` +
+        `• Database schema: ${validation.schemaDimensions || 'Unknown'}\n\n` +
+        `You may need to run the dimension migration tool to update your existing embeddings.\n\n` +
+        `Go to Tools > Dimension Migration to fix this.`;
+
+    alert(message);
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showError() {
+    document.getElementById('loadingSpinner').style.display = 'none';
+    document.getElementById('errorState').style.display = 'block';
+}
+</script>
+}

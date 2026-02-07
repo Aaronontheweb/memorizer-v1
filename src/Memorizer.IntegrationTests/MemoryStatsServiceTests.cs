@@ -1,6 +1,7 @@
 using Akka.Hosting;
 using Akka.Hosting.TestKit;
 using Memorizer.Extensions;
+using Memorizer.Models.ValueTypes;
 using Memorizer.Services;
 using Memorizer.Settings;
 using Microsoft.Extensions.Configuration;
@@ -96,7 +97,7 @@ public class MemoryStatsServiceTests : TestKit
         
         foreach (var (type, content, tags) in memories)
         {
-            await _storage.StoreMemory(type, content, "test", tags, 1.0, "Test Memory");
+            await _storage.StoreMemory(type, content, "test", tags, new Confidence(1.0), "Test Memory");
         }
         
         // Get the updated stats

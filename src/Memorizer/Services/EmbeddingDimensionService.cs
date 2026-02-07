@@ -1,5 +1,6 @@
 using Memorizer.Models;
 using Memorizer.Settings;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Registrator.Net;
 
@@ -8,14 +9,19 @@ namespace Memorizer.Services;
 /// <summary>
 /// Service for validating and managing embedding dimensions.
 /// Detects mismatches between configured model, actual output, and database schema.
-/// Note: Explicitly registered in ServiceCollectionExtensions with HttpClient configuration.
+///
+/// Uses IOptionsSnapshot for reloadable configuration - register as Scoped
+/// to get fresh settings on each request scope.
 /// </summary>
 public class EmbeddingDimensionService : IEmbeddingDimensionService
 {
     private readonly NpgsqlDataSource _dataSource;
-    private readonly EmbeddingSettings _embeddingSettings;
+    private readonly IOptionsSnapshot<EmbeddingSettings> _settingsSnapshot;
     private readonly HttpClient _httpClient;
     private readonly ILogger<EmbeddingDimensionService> _logger;
+
+    // Convenience property to get current settings
+    private EmbeddingSettings Settings => _settingsSnapshot.Value;
 
     // Cache the probed dimensions to avoid repeated API calls
     private int? _cachedModelDimensions;
@@ -23,33 +29,33 @@ public class EmbeddingDimensionService : IEmbeddingDimensionService
 
     public EmbeddingDimensionService(
         NpgsqlDataSource dataSource,
-        EmbeddingSettings embeddingSettings,
+        IOptionsSnapshot<EmbeddingSettings> settingsSnapshot,
         HttpClient httpClient,
         ILogger<EmbeddingDimensionService> logger)
     {
         _dataSource = dataSource;
-        _embeddingSettings = embeddingSettings;
+        _settingsSnapshot = settingsSnapshot;
         _httpClient = httpClient;
-        _httpClient.BaseAddress = embeddingSettings.ApiUrl;
-        _httpClient.Timeout = embeddingSettings.Timeout;
+        _httpClient.BaseAddress = Settings.ApiUrl;
+        _httpClient.Timeout = Settings.Timeout;
         _logger = logger;
     }
 
     public async Task<int?> ProbeModelDimensionsAsync(CancellationToken ct = default)
     {
         // Return cached value if we've already probed this model
-        if (_cachedModelDimensions.HasValue && _cachedModelName == _embeddingSettings.Model)
+        if (_cachedModelDimensions.HasValue && _cachedModelName == Settings.Model)
         {
             return _cachedModelDimensions;
         }
 
         try
         {
-            _logger.LogDebug("Probing embedding model {Model} for dimensions", _embeddingSettings.Model);
+            _logger.LogDebug("Probing embedding model {Model} for dimensions", Settings.Model);
 
             var request = new EmbeddingRequest
             {
-                Model = _embeddingSettings.Model,
+                Model = Settings.Model,
                 Prompt = "dimension probe"
             };
 
@@ -65,10 +71,10 @@ public class EmbeddingDimensionService : IEmbeddingDimensionService
             }
 
             _cachedModelDimensions = result.Embedding.Length;
-            _cachedModelName = _embeddingSettings.Model;
+            _cachedModelName = Settings.Model;
 
             _logger.LogInformation("Detected {Dimensions} dimensions from model {Model}",
-                _cachedModelDimensions, _embeddingSettings.Model);
+                _cachedModelDimensions, Settings.Model);
 
             return _cachedModelDimensions;
         }
@@ -152,7 +158,7 @@ public class EmbeddingDimensionService : IEmbeddingDimensionService
 
     public async Task<DimensionValidationResult> ValidateAsync(CancellationToken ct = default)
     {
-        _logger.LogInformation("Validating embedding dimensions for model {Model}", _embeddingSettings.Model);
+        _logger.LogInformation("Validating embedding dimensions for model {Model}", Settings.Model);
 
         // Gather all sources of truth
         var detectedDimensions = await ProbeModelDimensionsAsync(ct);
@@ -162,37 +168,20 @@ public class EmbeddingDimensionService : IEmbeddingDimensionService
         var embeddingApiAvailable = detectedDimensions.HasValue;
 
         // Check for various mismatch scenarios
+        // Priority: Schema dimensions are the source of truth for what's actually stored in the database
 
-        // Scenario 1: Model changed (detected dimensions differ from stored)
-        if (detectedDimensions.HasValue && storedConfig != null &&
-            detectedDimensions.Value != storedConfig.Dimensions)
-        {
-            var description = $"Model '{_embeddingSettings.Model}' outputs {detectedDimensions} dimensions, " +
-                              $"but stored config for '{storedConfig.ModelName}' expects {storedConfig.Dimensions} dimensions.";
-
-            _logger.LogWarning("Dimension mismatch: {Description}", description);
-
-            return DimensionValidationResult.Mismatch(
-                configuredModel: _embeddingSettings.Model,
-                detectedDimensions: detectedDimensions,
-                storedDimensions: storedConfig.Dimensions,
-                storedModel: storedConfig.ModelName,
-                schemaDimensions: schemaDimensions,
-                description: description,
-                embeddingApiAvailable: embeddingApiAvailable);
-        }
-
-        // Scenario 2: Schema mismatch (detected dimensions differ from schema)
+        // Scenario 1: Schema mismatch (detected dimensions differ from schema)
+        // This is the PRIMARY check - if model output matches schema, embeddings will work
         if (detectedDimensions.HasValue && schemaDimensions.HasValue &&
             detectedDimensions.Value != schemaDimensions.Value)
         {
-            var description = $"Model '{_embeddingSettings.Model}' outputs {detectedDimensions} dimensions, " +
+            var description = $"Model '{Settings.Model}' outputs {detectedDimensions} dimensions, " +
                               $"but database schema has VECTOR({schemaDimensions}).";
 
             _logger.LogWarning("Dimension mismatch: {Description}", description);
 
             return DimensionValidationResult.Mismatch(
-                configuredModel: _embeddingSettings.Model,
+                configuredModel: Settings.Model,
                 detectedDimensions: detectedDimensions,
                 storedDimensions: storedConfig?.Dimensions,
                 storedModel: storedConfig?.ModelName,
@@ -212,7 +201,7 @@ public class EmbeddingDimensionService : IEmbeddingDimensionService
             _logger.LogWarning("Dimension mismatch: {Description}", description);
 
             return DimensionValidationResult.Mismatch(
-                configuredModel: _embeddingSettings.Model,
+                configuredModel: Settings.Model,
                 detectedDimensions: detectedDimensions,
                 storedDimensions: storedConfig.Dimensions,
                 storedModel: storedConfig.ModelName,
@@ -221,16 +210,20 @@ public class EmbeddingDimensionService : IEmbeddingDimensionService
                 embeddingApiAvailable: embeddingApiAvailable);
         }
 
-        // Scenario 4: Model name changed but dimensions are same (just update config)
-        if (storedConfig != null && storedConfig.ModelName != _embeddingSettings.Model)
+        // Scenario 2: Model name changed but dimensions match schema - update stored config
+        if (storedConfig != null && storedConfig.ModelName != Settings.Model)
         {
-            // If we have detected dimensions and they match, just update the config
-            if (detectedDimensions.HasValue && detectedDimensions.Value == storedConfig.Dimensions)
+            // If detected dimensions match the schema, update the stored config to the new model
+            if (detectedDimensions.HasValue && schemaDimensions.HasValue &&
+                detectedDimensions.Value == schemaDimensions.Value)
             {
                 _logger.LogInformation(
-                    "Model name changed from '{OldModel}' to '{NewModel}' but dimensions match ({Dimensions}). " +
-                    "Config will be updated on next successful operation.",
-                    storedConfig.ModelName, _embeddingSettings.Model, detectedDimensions);
+                    "Model changed from '{OldModel}' to '{NewModel}', dimensions match schema ({Dimensions}). " +
+                    "Updating stored config.",
+                    storedConfig.ModelName, Settings.Model, detectedDimensions);
+
+                // Update the config to reflect the new model
+                await UpdateActiveConfigAsync(Settings.Model, detectedDimensions.Value, ct);
             }
         }
 
@@ -243,7 +236,7 @@ public class EmbeddingDimensionService : IEmbeddingDimensionService
         _logger.LogInformation("Dimension validation passed. Effective dimensions: {Dimensions}", effectiveDimensions);
 
         return DimensionValidationResult.Success(
-            configuredModel: _embeddingSettings.Model,
+            configuredModel: Settings.Model,
             dimensions: effectiveDimensions,
             embeddingApiAvailable: embeddingApiAvailable);
     }

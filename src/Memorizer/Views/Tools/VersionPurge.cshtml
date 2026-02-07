@@ -128,7 +128,7 @@
                     <div class="alert alert-secondary" role="alert">
                         <small>
                             <i class="fas fa-chart-line me-1"></i>
-                            <strong>Storage:</strong> Check the <a href="/ui/stats">Statistics Dashboard</a> to see current version storage usage.
+                            <strong>Storage:</strong> Check the <a href="/stats">Statistics Dashboard</a> to see current version storage usage.
                         </small>
                     </div>
                 </div>
@@ -141,7 +141,7 @@
     <script>
         // Create progress stream client for version purge
         const progressClient = new ProgressStreamClient({
-            sseUrl: '/ui/tools/version-purge-progress',
+            sseUrl: '/tools/version-purge-progress',
             progressBarId: 'progressBar',
             progressTextId: 'progressText',
             progressCardId: 'progressCard',

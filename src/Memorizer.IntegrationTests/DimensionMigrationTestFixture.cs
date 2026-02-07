@@ -26,7 +26,10 @@ public class DimensionMigrationTestFixture : IAsyncLifetime
     public const string TargetModel = "fake-model-768d";
     public const int TargetModelDimensions = 768;
 
-    public string PostgresConnectionString => PostgresContainer.GetConnectionString();
+    // Limit pool size to prevent connection exhaustion.
+    // Test classes must implement IDisposable to properly release connections.
+    public string PostgresConnectionString =>
+        PostgresContainer.GetConnectionString() + ";Maximum Pool Size=10;Minimum Pool Size=0;";
 
     public DimensionMigrationTestFixture()
     {

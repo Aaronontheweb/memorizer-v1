@@ -1,0 +1,259 @@
+{
+  "workspaces": [
+    {
+      "name": "Engineering",
+      "description": "Technical development and architecture workspace",
+      "slug": "engineering",
+      "children": [
+        {
+          "name": "Platform",
+          "description": "Platform team - infrastructure, DevOps, and shared services",
+          "slug": "platform"
+        }
+      ]
+    },
+    {
+      "name": "Marketing",
+      "description": "Marketing campaigns, content, and brand materials",
+      "slug": "marketing"
+    },
+    {
+      "name": "Sales",
+      "description": "Sales processes, CRM, and customer relationships",
+      "slug": "sales"
+    },
+    {
+      "name": "Operations",
+      "description": "Business operations, processes, and documentation",
+      "slug": "operations"
+    }
+  ],
+  "projects": [
+    {
+      "workspace": "engineering",
+      "name": "API Redesign",
+      "slug": "api-redesign",
+      "description": "Modernizing REST APIs to v2 with OpenAPI 3.1",
+      "status": "active"
+    },
+    {
+      "workspace": "engineering",
+      "name": "Tech Debt Cleanup",
+      "slug": "tech-debt-cleanup",
+      "description": "Refactoring legacy code and improving test coverage",
+      "status": "on_hold"
+    },
+    {
+      "workspace": "engineering/platform",
+      "name": "Infrastructure Migration",
+      "slug": "infrastructure-migration",
+      "description": "Migrating from on-prem to cloud infrastructure",
+      "status": "active"
+    },
+    {
+      "workspace": "marketing",
+      "name": "Q4 Campaign",
+      "slug": "q4-campaign",
+      "description": "Holiday marketing push and end-of-year promotions",
+      "status": "active"
+    },
+    {
+      "workspace": "marketing",
+      "name": "Brand Refresh",
+      "slug": "brand-refresh",
+      "description": "Updated logo, color palette, and style guide",
+      "status": "completed"
+    },
+    {
+      "workspace": "sales",
+      "name": "CRM Integration",
+      "slug": "crm-integration",
+      "description": "Integrating Salesforce with internal systems",
+      "status": "draft"
+    },
+    {
+      "workspace": "operations",
+      "name": "Process Documentation",
+      "slug": "process-documentation",
+      "description": "Documenting standard operating procedures",
+      "status": "active"
+    }
+  ],
+  "memories": [
+    {
+      "project": "engineering/api-redesign",
+      "id": "api-spec",
+      "title": "REST API v2 Specification",
+      "type": "specification",
+      "tags": ["api", "specification", "rest", "v2"],
+      "confidence": 0.95,
+      "content": "# REST API v2 Specification\n\n## Overview\nThis document describes the v2 REST API design for our platform.\n\n## Authentication\nAll endpoints require Bearer token authentication via the `Authorization` header.\n\n```\nAuthorization: Bearer <token>\n```\n\n## Base URL\n- Production: `https://api.example.com/v2`\n- Staging: `https://api-staging.example.com/v2`\n\n## Endpoints\n\n### Users\n| Method | Path | Description |\n|--------|------|-------------|\n| GET | /users | List all users (paginated) |\n| GET | /users/{id} | Get user by ID |\n| POST | /users | Create new user |\n| PUT | /users/{id} | Update user |\n| DELETE | /users/{id} | Delete user |\n\n### Projects\n| Method | Path | Description |\n|--------|------|-------------|\n| GET | /projects | List all projects |\n| GET | /projects/{id} | Get project details |\n| POST | /projects | Create project |\n\n## Response Format\nAll responses use JSON with consistent structure:\n```json\n{\n  \"data\": { ... },\n  \"meta\": {\n    \"page\": 1,\n    \"pageSize\": 20,\n    \"total\": 100\n  }\n}\n```\n\n## Error Handling\nErrors return appropriate HTTP status codes with details:\n```json\n{\n  \"error\": {\n    \"code\": \"VALIDATION_ERROR\",\n    \"message\": \"Invalid email format\",\n    \"details\": { ... }\n  }\n}\n```"
+    },
+    {
+      "project": "engineering/api-redesign",
+      "id": "api-checklist",
+      "title": "API v2 Implementation Checklist",
+      "type": "checklist",
+      "tags": ["api", "checklist", "implementation"],
+      "confidence": 0.9,
+      "content": "# API v2 Implementation Checklist\n\n## Phase 1: Design\n- [x] Define OpenAPI 3.1 schema\n- [x] Review authentication approach\n- [x] Document error handling standards\n- [x] Create Postman collection\n\n## Phase 2: Implementation\n- [x] Implement user endpoints\n- [x] Implement project endpoints\n- [ ] Implement billing endpoints\n- [ ] Implement reporting endpoints\n- [ ] Add rate limiting\n\n## Phase 3: Testing\n- [x] Unit tests for all endpoints\n- [ ] Integration tests\n- [ ] Load testing\n- [ ] Security audit\n\n## Phase 4: Deployment\n- [ ] Deploy to staging\n- [ ] QA sign-off\n- [ ] Production rollout plan\n- [ ] Documentation update"
+    },
+    {
+      "project": "engineering/api-redesign",
+      "id": "api-worklog",
+      "title": "API Design Review Session - Dec 1, 2025",
+      "type": "work_log",
+      "tags": ["api", "meeting", "work-log", "design"],
+      "confidence": 0.85,
+      "content": "# API Design Review Session - Dec 1, 2025\n\n## Attendees\n- Alice (Tech Lead)\n- Bob (Backend Developer)\n- Carol (API Architect)\n\n## Agenda\n1. Review v2 endpoint design\n2. Discuss breaking changes from v1\n3. Plan migration strategy\n\n## Discussion Notes\n\n### Authentication Changes\nDecided to move from API keys to JWT tokens for better security and session management. Will support API keys for legacy clients for 6 months.\n\n### Pagination\nAgreed on cursor-based pagination for large collections. Page-based pagination will be deprecated.\n\n### Versioning Strategy\n- URL versioning (v2 in path)\n- Sunset header for deprecated endpoints\n- 6-month deprecation notice\n\n## Action Items\n- [ ] Alice: Update OpenAPI spec with new auth flow\n- [ ] Bob: Prototype cursor pagination\n- [ ] Carol: Draft migration guide for API consumers\n\n## Next Meeting\nDecember 8, 2025 - Implementation kickoff"
+    },
+    {
+      "project": "engineering/api-redesign",
+      "id": "api-reference",
+      "title": "API Best Practices Reference",
+      "type": "reference",
+      "tags": ["api", "best-practices", "reference"],
+      "confidence": 0.95,
+      "content": "# API Best Practices Reference\n\n## RESTful Design Principles\n\n### Resource Naming\n- Use nouns, not verbs: `/users` not `/getUsers`\n- Use plural forms: `/projects` not `/project`\n- Use kebab-case for multi-word: `/user-profiles`\n\n### HTTP Methods\n| Method | Usage | Idempotent |\n|--------|-------|------------|\n| GET | Retrieve resources | Yes |\n| POST | Create resources | No |\n| PUT | Replace resources | Yes |\n| PATCH | Partial update | No |\n| DELETE | Remove resources | Yes |\n\n### Status Codes\n- 200: Success\n- 201: Created\n- 204: No Content\n- 400: Bad Request\n- 401: Unauthorized\n- 403: Forbidden\n- 404: Not Found\n- 422: Unprocessable Entity\n- 500: Internal Server Error\n\n## Security Best Practices\n1. Always use HTTPS\n2. Validate all input\n3. Use parameterized queries\n4. Implement rate limiting\n5. Log security events"
+    },
+    {
+      "project": "engineering/tech-debt-cleanup",
+      "id": "tech-debt-backlog",
+      "title": "Tech Debt Backlog",
+      "type": "todo_list",
+      "tags": ["tech-debt", "backlog", "todo"],
+      "confidence": 0.8,
+      "content": "# Tech Debt Backlog\n\n## High Priority\n- [ ] Remove deprecated UserManager class\n- [ ] Migrate from Newtonsoft.Json to System.Text.Json\n- [ ] Fix N+1 query in ProjectRepository.GetWithMembers()\n- [ ] Update Entity Framework to latest version\n\n## Medium Priority\n- [ ] Consolidate duplicate validation logic\n- [ ] Extract common HTTP client configuration\n- [ ] Add missing unit tests for AuthService\n- [ ] Refactor oversized OrderController (500+ lines)\n\n## Low Priority\n- [ ] Rename ambiguous variable names in legacy code\n- [ ] Add XML documentation to public APIs\n- [ ] Clean up unused NuGet packages\n- [ ] Standardize logging format across services"
+    },
+    {
+      "project": "engineering/tech-debt-cleanup",
+      "id": "code-standards",
+      "title": "Code Quality Standards",
+      "type": "standard",
+      "tags": ["standards", "code-quality", "guidelines"],
+      "confidence": 0.95,
+      "content": "# Code Quality Standards\n\n## Code Review Requirements\n1. All PRs require at least one approval\n2. No warnings in build output\n3. Test coverage must not decrease\n4. No TODO comments without linked issues\n\n## Naming Conventions\n- Classes: PascalCase\n- Methods: PascalCase\n- Variables: camelCase\n- Constants: UPPER_SNAKE_CASE\n- Interfaces: IPrefixed\n\n## Documentation\n- Public APIs must have XML docs\n- Complex algorithms need inline comments\n- README required for each project\n\n## Testing\n- Unit tests for business logic\n- Integration tests for data access\n- Minimum 80% code coverage for new code"
+    },
+    {
+      "project": "engineering/platform/infrastructure-migration",
+      "id": "cloud-migration-spec",
+      "title": "Cloud Migration Specification",
+      "type": "specification",
+      "tags": ["infrastructure", "cloud", "aws", "migration"],
+      "confidence": 0.9,
+      "content": "# Cloud Migration Specification\n\n## Current State\n- On-premises data center\n- VMware virtualization\n- Manual deployments\n- Single region\n\n## Target State\n- AWS cloud infrastructure\n- Kubernetes (EKS)\n- GitOps with ArgoCD\n- Multi-region (us-east-1, us-west-2)\n\n## Migration Phases\n\n### Phase 1: Lift and Shift\nMove existing VMs to EC2 with minimal changes.\n\n### Phase 2: Containerization\nPackage applications as Docker containers.\n\n### Phase 3: Kubernetes\nDeploy to EKS with proper orchestration.\n\n### Phase 4: Optimization\nRight-size resources, implement auto-scaling.\n\n## Risk Mitigation\n- Blue/green deployments\n- Gradual traffic shifting\n- Automated rollback capability\n- 24/7 on-call during migration"
+    },
+    {
+      "project": "engineering/platform/infrastructure-migration",
+      "id": "infra-checklist",
+      "title": "Infrastructure Migration Checklist",
+      "type": "checklist",
+      "tags": ["infrastructure", "checklist", "migration"],
+      "confidence": 0.85,
+      "content": "# Infrastructure Migration Checklist\n\n## Pre-Migration\n- [x] Inventory all applications\n- [x] Assess cloud readiness\n- [x] Estimate costs\n- [x] Security review\n- [ ] Network architecture design\n\n## AWS Setup\n- [x] Create AWS accounts\n- [x] Configure IAM roles\n- [ ] Set up VPC and subnets\n- [ ] Configure security groups\n- [ ] Set up VPN connection\n\n## Database Migration\n- [ ] Test RDS compatibility\n- [ ] Plan data migration window\n- [ ] Set up replication\n- [ ] Validate data integrity\n\n## Application Migration\n- [ ] Containerize applications\n- [ ] Create Kubernetes manifests\n- [ ] Set up CI/CD pipelines\n- [ ] Configure monitoring"
+    },
+    {
+      "project": "marketing/q4-campaign",
+      "id": "q4-campaign-plan",
+      "title": "Q4 Marketing Campaign Plan",
+      "type": "specification",
+      "tags": ["marketing", "campaign", "q4", "plan"],
+      "confidence": 0.9,
+      "content": "# Q4 Marketing Campaign Plan\n\n## Campaign Overview\n**Theme**: \"End of Year, Start of Savings\"\n**Duration**: November 15 - December 31, 2025\n**Budget**: $50,000\n\n## Target Audience\n- Existing customers (upsell)\n- Trial users (conversion)\n- New prospects (acquisition)\n\n## Channels\n| Channel | Budget | Goal |\n|---------|--------|------|\n| Email | $10,000 | Retention |\n| Social | $15,000 | Awareness |\n| PPC | $20,000 | Acquisition |\n| Content | $5,000 | SEO |\n\n## Key Messages\n1. Year-end discount (20% off annual plans)\n2. New features announcement\n3. Customer success stories\n\n## Success Metrics\n- 15% increase in MRR\n- 500 new trial signups\n- 25% trial-to-paid conversion"
+    },
+    {
+      "project": "marketing/q4-campaign",
+      "id": "q4-launch-checklist",
+      "title": "Q4 Campaign Launch Checklist",
+      "type": "checklist",
+      "tags": ["marketing", "checklist", "campaign"],
+      "confidence": 0.85,
+      "content": "# Q4 Campaign Launch Checklist\n\n## Content Preparation\n- [x] Write email sequences (5 emails)\n- [x] Create social media content calendar\n- [ ] Design landing pages\n- [ ] Produce promotional video\n- [ ] Write blog posts (3)\n\n## Technical Setup\n- [x] Set up tracking pixels\n- [ ] Configure email automation\n- [ ] A/B test setup\n- [ ] Analytics dashboard\n\n## Launch Activities\n- [ ] Soft launch to VIP customers\n- [ ] Full campaign launch\n- [ ] Influencer outreach\n- [ ] Press release\n\n## Monitoring\n- [ ] Daily performance review\n- [ ] Weekly optimization meeting\n- [ ] Mid-campaign adjustment\n- [ ] Final report"
+    },
+    {
+      "project": "marketing/brand-refresh",
+      "id": "brand-style-guide",
+      "title": "Brand Style Guide v2.0",
+      "type": "reference",
+      "tags": ["brand", "style-guide", "design"],
+      "confidence": 0.95,
+      "content": "# Brand Style Guide v2.0\n\n## Logo Usage\n- Minimum size: 32px height\n- Clear space: Equal to 'X' height\n- Never stretch or distort\n- Use provided color variations only\n\n## Color Palette\n| Color | Hex | Usage |\n|-------|-----|-------|\n| Primary Blue | #2563EB | CTAs, headers |\n| Secondary Gray | #6B7280 | Body text |\n| Accent Green | #10B981 | Success states |\n| Warning Orange | #F59E0B | Warnings |\n| Error Red | #EF4444 | Errors |\n\n## Typography\n- Headings: Inter Bold\n- Body: Inter Regular\n- Code: JetBrains Mono\n\n## Voice & Tone\n- Professional but approachable\n- Clear and concise\n- Helpful, not condescending\n- Technical when needed, simple when possible"
+    },
+    {
+      "project": "sales/crm-integration",
+      "id": "crm-requirements",
+      "title": "CRM Integration Requirements (Draft)",
+      "type": "specification",
+      "tags": ["crm", "salesforce", "integration", "draft"],
+      "confidence": 0.6,
+      "content": "# CRM Integration Requirements (Draft)\n\n## Overview\nIntegrate Salesforce CRM with internal systems for unified customer data.\n\n## Integration Points\n1. **Customer Data Sync**\n   - Contacts\n   - Accounts\n   - Opportunities\n\n2. **Activity Tracking**\n   - Emails\n   - Meetings\n   - Support tickets\n\n3. **Reporting**\n   - Sales pipeline\n   - Customer health scores\n\n## Technical Approach\n- Use Salesforce REST API\n- Event-driven sync via webhooks\n- Daily batch reconciliation\n\n## Open Questions\n- [ ] Which Salesforce edition?\n- [ ] Data retention requirements?\n- [ ] GDPR considerations?\n- [ ] Budget for Salesforce licenses?\n\n*This document is a draft and requires stakeholder review.*"
+    },
+    {
+      "project": "operations/process-documentation",
+      "id": "incident-response",
+      "title": "Incident Response Procedure",
+      "type": "standard",
+      "tags": ["operations", "incident-response", "sop"],
+      "confidence": 0.95,
+      "content": "# Incident Response Procedure\n\n## Severity Levels\n\n### P1 - Critical\n- Service completely down\n- Data loss or security breach\n- Response: Immediate (15 min)\n\n### P2 - High\n- Major feature unavailable\n- Performance severely degraded\n- Response: 1 hour\n\n### P3 - Medium\n- Minor feature issues\n- Workaround available\n- Response: 4 hours\n\n### P4 - Low\n- Cosmetic issues\n- Feature requests\n- Response: Next business day\n\n## Response Steps\n\n1. **Acknowledge** - Confirm receipt of alert\n2. **Assess** - Determine severity and impact\n3. **Communicate** - Notify stakeholders\n4. **Investigate** - Find root cause\n5. **Resolve** - Implement fix\n6. **Document** - Write postmortem\n\n## Escalation Path\nEngineer → Team Lead → Engineering Manager → CTO"
+    },
+    {
+      "project": "operations/process-documentation",
+      "id": "onboarding-checklist",
+      "title": "New Employee Onboarding Checklist",
+      "type": "checklist",
+      "tags": ["operations", "onboarding", "hr", "checklist"],
+      "confidence": 0.9,
+      "content": "# New Employee Onboarding Checklist\n\n## Day 1\n- [ ] Laptop setup\n- [ ] Account creation (email, Slack, GitHub)\n- [ ] Security training\n- [ ] Meet the team\n\n## Week 1\n- [ ] Complete HR paperwork\n- [ ] Development environment setup\n- [ ] Read team documentation\n- [ ] First pair programming session\n- [ ] 1:1 with manager\n\n## Month 1\n- [ ] Complete all required training\n- [ ] First code contribution\n- [ ] Shadow on-call rotation\n- [ ] 30-day check-in\n\n## Month 3\n- [ ] Independent feature ownership\n- [ ] Join on-call rotation\n- [ ] 90-day review"
+    },
+    {
+      "project": null,
+      "id": "meeting-template",
+      "title": "Meeting Notes Template",
+      "type": "reference",
+      "tags": ["template", "meetings", "unfiled"],
+      "confidence": 0.8,
+      "content": "# Meeting Notes Template\n\n## Meeting Information\n- **Date**: [Date]\n- **Time**: [Time]\n- **Attendees**: [Names]\n- **Facilitator**: [Name]\n\n## Agenda\n1. [Topic 1]\n2. [Topic 2]\n3. [Topic 3]\n\n## Discussion Notes\n[Notes here]\n\n## Action Items\n| Action | Owner | Due Date |\n|--------|-------|----------|\n| | | |\n\n## Next Meeting\n[Date and time]"
+    },
+    {
+      "project": null,
+      "id": "cli-commands",
+      "title": "Useful CLI Commands",
+      "type": "reference",
+      "tags": ["cli", "commands", "reference", "unfiled"],
+      "confidence": 0.9,
+      "content": "# Useful CLI Commands\n\n## Git\n```bash\n# Undo last commit but keep changes\ngit reset --soft HEAD~1\n\n# Interactive rebase last 5 commits\ngit rebase -i HEAD~5\n\n# Clean up merged branches\ngit branch --merged | grep -v main | xargs git branch -d\n```\n\n## Docker\n```bash\n# Remove all stopped containers\ndocker container prune\n\n# Remove unused images\ndocker image prune -a\n\n# View container logs\ndocker logs -f container_name\n```\n\n## Kubernetes\n```bash\n# Get all pods in all namespaces\nkubectl get pods -A\n\n# Describe a pod\nkubectl describe pod pod_name\n\n# Port forward\nkubectl port-forward svc/service_name 8080:80\n```"
+    },
+    {
+      "project": null,
+      "id": "random-ideas",
+      "title": "Random Ideas to Explore",
+      "type": "todo_list",
+      "tags": ["ideas", "research", "unfiled"],
+      "confidence": 0.5,
+      "content": "# Random Ideas to Explore\n\n- [ ] Look into using Rust for performance-critical services\n- [ ] Evaluate GraphQL vs REST for mobile API\n- [ ] Research AI-powered code review tools\n- [ ] Consider implementing feature flags system\n- [ ] Explore WebAssembly for browser performance\n- [ ] Investigate serverless for event processing"
+    }
+  ],
+  "relationships": [
+    {
+      "from": "api-spec",
+      "to": "api-checklist",
+      "type": "explains"
+    },
+    {
+      "from": "api-worklog",
+      "to": "api-spec",
+      "type": "references"
+    },
+    {
+      "from": "api-reference",
+      "to": "api-spec",
+      "type": "related-to"
+    },
+    {
+      "from": "api-checklist",
+      "to": "api-worklog",
+      "type": "references"
+    }
+  ]
+}

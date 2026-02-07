@@ -4,6 +4,9 @@ using ModelContextProtocol.Server;
 using Memory = Memorizer.Models.Memory;
 using System.Linq;
 using System.Diagnostics;
+using Memorizer.Models;
+using Memorizer.Models.Enums;
+using Memorizer.Models.ValueTypes;
 using Memorizer.Services;
 using Memorizer.Settings;
 using Memorizer.Telemetry;
@@ -35,27 +38,43 @@ public class MemoryTools
         [Description("Confidence score for the memory (0.0 to 1.0)")] double confidence = 1.0,
         [Description("Optionally, the ID of a related memory. Use this to link related reference materials, how-tos, or examples.")] Guid? relatedTo = null,
         [Description("Optionally, the type of relationship to create (e.g., 'example-of', 'explains', 'related-to'). Use relationships to connect related knowledge.")] string? relationshipType = null,
+        [Description("Optional project ID to assign this memory to. If not provided, memory is stored in the Unfiled workspace. Use ListProjects to find available projects.")] Guid? projectId = null,
+        [Description("Memory archetype: 'document' for living, editable content (default) or 'record' for historical, immutable records like work logs.")] string archetype = "document",
         CancellationToken cancellationToken = default
     )
     {
+        // Parse archetype string to enum
+        var archetypeEnum = ArchetypeEnumExtensions.ParseArchetype(archetype);
+
+        // Determine owner based on projectId
+        MemoryOwner? owner = projectId.HasValue
+            ? MemoryOwner.ForProject(new ProjectId(projectId.Value))
+            : null; // null defaults to Unfiled in storage layer
+
         // Create new memory
         var memory = await _storage.StoreMemory(
             type,
             text,
             source,
             tags,
-            confidence,
+            new Confidence(confidence),
             title: title,
+            owner: owner,
+            archetype: archetypeEnum,
             cancellationToken: cancellationToken
         );
 
         // Handle manual relationship creation if specified
         if (relatedTo.HasValue && !string.IsNullOrWhiteSpace(relationshipType))
         {
-            await _storage.CreateRelationship(memory.Id, relatedTo.Value, relationshipType, cancellationToken);
+            await _storage.CreateRelationship(memory.Id, (MemoryId)relatedTo.Value, relationshipType, cancellationToken);
         }
 
-        return $"Memory stored successfully with ID: {memory.Id}. Use Edit tool to make targeted updates, or CreateRelationship to link to other memories.";
+        var locationInfo = owner != null
+            ? $"Assigned to project {projectId}."
+            : "Stored in Unfiled workspace.";
+
+        return $"Memory stored successfully with ID: {memory.Id}. {locationInfo} Archetype: {archetypeEnum.ToStringValue()}. Use Edit tool to make targeted updates, or CreateReference to link to other memories.";
     }
 
     [McpServerTool, Description("Edit an existing memory using find-and-replace. Ideal for checking off to-do items, updating sections, or fixing typos. IMPORTANT: The edit will FAIL if old_text is not found exactly - always use Get first to see current content and copy the exact text to replace. All changes are versioned and can be reverted.")]
@@ -77,8 +96,10 @@ public class MemoryTools
             {"replace_all", replace_all.ToString()}
         }));
 
+        var memoryId = (MemoryId)id;
+
         // Get existing memory
-        var existingMemory = await _storage.Get(id, cancellationToken);
+        var existingMemory = await _storage.Get(memoryId, cancellationToken);
         if (existingMemory == null)
         {
             _logger.LogInformation("Edit failed: Memory not found for ID: {MemoryId}", id);
@@ -127,7 +148,7 @@ public class MemoryTools
 
         // Update the memory with new content (keeps all other metadata the same)
         var updatedMemory = await _storage.UpdateMemory(
-            id,
+            memoryId,
             existingMemory.Type,
             newContent,
             existingMemory.Source,
@@ -164,6 +185,22 @@ public class MemoryTools
         return count;
     }
 
+    /// <summary>
+    /// Formats a MemoryOwner for display in tool responses.
+    /// Shows "Unfiled" for the default workspace, otherwise shows type and ID.
+    /// </summary>
+    private static string FormatOwner(MemoryOwner owner)
+    {
+        if (owner.IsUnfiled)
+        {
+            return "Unfiled";
+        }
+
+        return owner.Type == OwnerTypeEnum.Project
+            ? $"Project ({owner.Id})"
+            : $"Workspace ({owner.Id})";
+    }
+
     [McpServerTool, Description("Update a memory's metadata (title, type, tags, confidence) without changing the content or regenerating embeddings. Use Edit tool for content changes. All changes are versioned and can be reverted.")]
     public async Task<string> UpdateMetadata(
         [Description("The ID of the memory to update.")] Guid id,
@@ -176,8 +213,10 @@ public class MemoryTools
     {
         using var activity = TelemetryConfig.ActivitySource.StartActivity("MemoryTools.UpdateMetadata");
 
+        var memoryId = (MemoryId)id;
+
         // Get existing memory
-        var existingMemory = await _storage.Get(id, cancellationToken);
+        var existingMemory = await _storage.Get(memoryId, cancellationToken);
         if (existingMemory == null)
         {
             _logger.LogInformation("UpdateMetadata failed: Memory not found for ID: {MemoryId}", id);
@@ -189,11 +228,11 @@ public class MemoryTools
         var newTitle = title ?? existingMemory.Title;
         var newType = type ?? existingMemory.Type;
         var newTags = tags ?? existingMemory.Tags;
-        var newConfidence = confidence ?? existingMemory.Confidence;
+        var newConfidence = confidence.HasValue ? new Confidence(confidence.Value) : existingMemory.Confidence;
 
         // Update the memory (content stays the same)
         var updatedMemory = await _storage.UpdateMemory(
-            id,
+            memoryId,
             newType,
             existingMemory.Text,
             existingMemory.Source,
@@ -228,27 +267,40 @@ public class MemoryTools
         [Description("Maximum number of results to return")] int limit = 10,
         [Description("Minimum similarity threshold (0.0 to 1.0)")] double minSimilarity = 0.7,
         [Description("Optional tags to filter memories (e.g., 'reference', 'how-to', 'coding-standard')")] string[]? filterTags = null,
+        [Description("Optional project ID to scope search to. If provided, only searches memories assigned to this project. Use ListProjects to find available projects.")] Guid? projectId = null,
+        [Description("When projectId is specified, also include memories in the Unfiled workspace. Useful for finding unorganized content that might be relevant.")] bool includeUnassigned = false,
+        [Description("Include archived memories in search results. Default is false (archived memories are hidden).")] bool includeArchived = false,
         CancellationToken cancellationToken = default
     )
     {
         using var activity = TelemetryConfig.ActivitySource.StartActivity("MemoryTools.SearchMemories");
-        
+
         // Add query details as Activity event with structured data
         activity?.AddEvent(new ActivityEvent("query.details", DateTimeOffset.UtcNow, new ActivityTagsCollection
         {
             {"query.text", query},
             {"query.limit", limit.ToString()},
             {"query.minSimilarity", minSimilarity.ToString()},
-            {"query.filterTags", filterTags != null ? string.Join(", ", filterTags) : "none"}
+            {"query.filterTags", filterTags != null ? string.Join(", ", filterTags) : "none"},
+            {"query.projectId", projectId?.ToString() ?? "none"},
+            {"query.includeUnassigned", includeUnassigned.ToString()},
+            {"query.includeArchived", includeArchived.ToString()}
         }));
+
+        // Convert projectId to typed ProjectId
+        ProjectId? typedProjectId = projectId.HasValue ? new ProjectId(projectId.Value) : null;
 
         // Search for similar memories using metadata embeddings (title + tags)
         // This is optimized for keyword-style LLM queries vs full content embeddings
         List<Memory> memories = await _storage.SearchWithMetadataEmbedding(
             query,
             limit,
-            minSimilarity,
+            new SimilarityScore(minSimilarity),
             filterTags,
+            typedProjectId,
+            includeUnassigned,
+            includeArchived,
+            includeSystem: false,
             cancellationToken
         );
 
@@ -262,9 +314,9 @@ public class MemoryTools
         if (memories.Count == 0 && minSimilarity > 0.0)
         {
             double fallbackThreshold = Math.Max(0.0, minSimilarity - 0.1);
-            
+
             _logger.LogInformation("No results found at threshold {OriginalThreshold}, trying fallback search at {FallbackThreshold}", minSimilarity, fallbackThreshold);
-            
+
             activity?.AddEvent(new ActivityEvent("fallback.search", DateTimeOffset.UtcNow, new ActivityTagsCollection
             {
                 {"fallback.threshold", fallbackThreshold.ToString()},
@@ -274,8 +326,12 @@ public class MemoryTools
             memories = await _storage.SearchWithMetadataEmbedding(
                 query,
                 limit,
-                fallbackThreshold,
+                new SimilarityScore(fallbackThreshold),
                 filterTags,
+                typedProjectId,
+                includeUnassigned,
+                includeArchived,
+                includeSystem: false,
                 cancellationToken
             );
 
@@ -296,7 +352,7 @@ public class MemoryTools
         // Log detailed results for each memory
         foreach (var memory in memories)
         {
-            var relevancyScore = memory.Similarity.HasValue ? (100 * (1 - memory.Similarity.Value)) : 0;
+            var relevancyScore = memory.Similarity.HasValue ? (100 * (double)memory.Similarity.Value) : 0;
             var relationshipCount = memory.Relationships?.Count ?? 0;
             
             _logger.LogInformation("Search result: MemoryId: {MemoryId}, Title: {Title}, RelevancyScore: {RelevancyScore:F1}%, RelationshipCount: {RelationshipCount}",
@@ -331,7 +387,7 @@ public class MemoryTools
 
         foreach (var memory in memories)
         {
-            memoryIds.Add(memory.Id);
+            memoryIds.Add(memory.Id.Value);
 
             result.AppendLine($"ID: {memory.Id}");
             if (memory.Title != null)
@@ -339,6 +395,12 @@ public class MemoryTools
                 result.AppendLine($"Title: {memory.Title}");
             }
             result.AppendLine($"Type: {memory.Type}");
+
+            // Show owner (workspace/project) for organization context
+            result.AppendLine($"Owner: {FormatOwner(memory.Owner)}");
+
+            // Show archetype status (especially important when includeArchived is true)
+            result.AppendLine($"Archetype: {memory.Archetype.ToStringValue()}{(memory.Archetype.IsArchived() ? " ⚠️" : "")}");
 
             // Only include full content if configured to do so
             if (_searchSettings.ReturnFullContent)
@@ -358,7 +420,7 @@ public class MemoryTools
 
             if (memory.Similarity.HasValue)
             {
-                double percent = 100 * (1 - memory.Similarity.Value);
+                double percent = 100 * (double)memory.Similarity.Value;
                 result.AppendLine($"Similarity: {percent:F1}%");
             }
 
@@ -385,12 +447,16 @@ public class MemoryTools
         return result.ToString();
     }
 
-    [McpServerTool, Description("Retrieve a specific memory by ID. Use this to fetch a particular reference, how-to, or example by its unique identifier. Optionally include version history or retrieve a specific past version.")]
+    [McpServerTool, Description("Retrieve a specific memory by ID. Use this to fetch a particular reference, how-to, or example by its unique identifier. Optionally include version history or retrieve a specific past version. By default, also shows similar memories that may be candidates for consolidation or linking.")]
     public async Task<string> Get(
         [Description("The ID of the memory to retrieve. Use this to fetch a specific piece of reference or how-to information.")] Guid id,
         [Description("Optional: If true, includes version history summary in the response (recent versions, change count).")] bool includeVersionHistory = false,
         [Description("Optional: Specific version number to retrieve. If provided, returns that version's content instead of current.")] int? versionNumber = null,
         [Description("Optional: Maximum number of versions to include in history (default: 5, max: 20).")] int versionLimit = 5,
+        [Description("Optional: If true, includes relationships pointing to archived memories. Default is false (archived targets are hidden).")] bool includeArchivedRelationships = false,
+        [Description("Optional: If true (default), shows similar memories based on content embedding. Useful for discovering consolidation candidates. Set to false to skip similarity check.")] bool includeSimilar = true,
+        [Description("Optional: Minimum similarity threshold for similar memories (0.0 to 1.0). Default is 0.75.")] double similarityThreshold = 0.75,
+        [Description("Optional: Maximum number of similar memories to show (default: 5, max: 10).")] int similarLimit = 5,
         CancellationToken cancellationToken = default
     )
     {
@@ -401,13 +467,16 @@ public class MemoryTools
         {
             {"query.id", id.ToString()},
             {"query.includeVersionHistory", includeVersionHistory.ToString()},
-            {"query.versionNumber", versionNumber?.ToString() ?? "current"}
+            {"query.versionNumber", versionNumber?.ToString() ?? "current"},
+            {"query.includeArchivedRelationships", includeArchivedRelationships.ToString()}
         }));
+
+        var memoryId = (MemoryId)id;
 
         // If requesting a specific version, get that version
         if (versionNumber.HasValue)
         {
-            var version = await _storage.GetVersion(id, versionNumber.Value, cancellationToken);
+            var version = await _storage.GetVersion(memoryId, new VersionNumber(versionNumber.Value), cancellationToken);
             if (version == null)
             {
                 return $"Version {versionNumber.Value} not found for memory ID {id}.";
@@ -443,13 +512,19 @@ public class MemoryTools
         }
 
         // Get current memory
-        Memory? memory = await _storage.Get(id, cancellationToken);
+        Memory? memory = await _storage.Get(memoryId, cancellationToken);
 
         if (memory == null)
         {
             _logger.LogInformation("Memory not found for ID: {MemoryId}", id);
             activity?.SetStatus(ActivityStatusCode.Ok, "Memory not found");
             return $"Memory with ID {id} not found.";
+        }
+
+        // If includeArchivedRelationships is true, re-fetch relationships with archived targets
+        if (includeArchivedRelationships)
+        {
+            memory.Relationships = await _storage.GetRelationships(memoryId, type: null, includeArchivedTargets: true, cancellationToken);
         }
 
         // Log result details
@@ -474,6 +549,8 @@ public class MemoryTools
             result.AppendLine($"Title: {memory.Title}");
         }
         result.AppendLine($"Type: {memory.Type}");
+        result.AppendLine($"Owner: {FormatOwner(memory.Owner)}");
+        result.AppendLine($"Archetype: {memory.Archetype.ToStringValue()}{(memory.Archetype.IsArchived() ? " ⚠️ (hidden from default searches)" : "")}");
         result.AppendLine($"Text: {memory.Text}");
         result.AppendLine($"Source: {memory.Source}");
         result.AppendLine(
@@ -483,12 +560,12 @@ public class MemoryTools
         result.AppendLine($"Current Version: {memory.CurrentVersion}");
         if (memory.Similarity.HasValue)
         {
-            double percent = 100 * (1 - memory.Similarity.Value);
+            double percent = 100 * (double)memory.Similarity.Value;
             result.AppendLine($"Similarity: {percent:F1}%");
         }
 
         // Collect related memory IDs for suggestion
-        var relatedMemoryIds = new HashSet<Guid>();
+        var relatedMemoryIds = new HashSet<MemoryId>();
 
         // List relationships
         if (memory.Relationships != null && memory.Relationships.Count > 0)
@@ -500,8 +577,9 @@ public class MemoryTools
                 var direction = rel.FromMemoryId == memory.Id ? "→" : "←";
                 var relatedTitle = rel.RelatedMemoryTitle ?? "Untitled";
                 var relatedType = rel.RelatedMemoryType ?? "unknown";
+                var archivedIndicator = rel.TargetArchived ? " [ARCHIVED]" : "";
 
-                result.AppendLine($"  • [{rel.Type.ToUpper()}] {direction} \"{relatedTitle}\" ({relatedType}) [ID: {relatedId}]");
+                result.AppendLine($"  • [{rel.Type.ToUpper()}] {direction} \"{relatedTitle}\" ({relatedType}) [ID: {relatedId}]{archivedIndicator}");
 
                 // Collect related memory IDs (excluding the current memory)
                 if (rel.FromMemoryId != memory.Id)
@@ -517,7 +595,7 @@ public class MemoryTools
         if (includeVersionHistory)
         {
             var limitClamped = Math.Clamp(versionLimit, 1, 20);
-            var versions = await _storage.GetVersionHistory(id, limitClamped, cancellationToken);
+            var versions = await _storage.GetVersionHistory(memoryId, limitClamped, cancellationToken);
 
             if (versions.Count > 0)
             {
@@ -531,6 +609,37 @@ public class MemoryTools
                 }
                 result.AppendLine();
                 result.AppendLine("💡 Use Get with versionNumber parameter to view a specific version, or RevertToVersion to restore.");
+            }
+        }
+
+        // Include similar memories if requested (for consolidation discovery)
+        var similarMemoryIds = new List<MemoryId>();
+        if (includeSimilar)
+        {
+            var clampedSimilarLimit = Math.Clamp(similarLimit, 1, 10);
+            var clampedThreshold = Math.Clamp(similarityThreshold, 0.0, 1.0);
+
+            var similarMemories = await _storage.GetSimilarMemories(
+                memoryId,
+                new SimilarityScore(clampedThreshold),
+                clampedSimilarLimit,
+                cancellationToken);
+
+            if (similarMemories.Count > 0)
+            {
+                result.AppendLine();
+                result.AppendLine($"🔍 Similar Memories ({similarMemories.Count} found above {clampedThreshold * 100:F0}% similarity):");
+                result.AppendLine("These may be candidates for consolidation, linking, or may provide additional context:");
+                foreach (var similar in similarMemories)
+                {
+                    var percent = 100 * (double)similar.Similarity;
+                    var relationshipIndicator = similar.HasExistingRelationship ? " [LINKED]" : "";
+                    result.AppendLine($"  • \"{similar.Title}\" ({similar.Type}) - {percent:F1}% similar [ID: {similar.Id}]{relationshipIndicator}");
+                    similarMemoryIds.Add(similar.Id);
+                }
+                result.AppendLine();
+                result.AppendLine("💡 High similarity may indicate duplicate or overlapping content that could be consolidated.");
+                result.AppendLine("Use GetMany to fetch full content of similar memories for comparison.");
             }
         }
 
@@ -553,7 +662,7 @@ public class MemoryTools
         CancellationToken cancellationToken = default
     )
     {
-        bool success = await _storage.Delete(id, cancellationToken);
+        bool success = await _storage.Delete((MemoryId)id, cancellationToken);
 
         return success ? $"Memory with ID {id} deleted successfully." : $"Memory with ID {id} not found or could not be deleted.";
     }
@@ -565,7 +674,7 @@ public class MemoryTools
     )
     {
         using var activity = TelemetryConfig.ActivitySource.StartActivity("MemoryTools.GetMany");
-        
+
         // Add query details as Activity event
         activity?.AddEvent(new ActivityEvent("query.details", DateTimeOffset.UtcNow, new ActivityTagsCollection
         {
@@ -573,7 +682,8 @@ public class MemoryTools
             {"query.count", ids.Length.ToString()}
         }));
 
-        var memories = await _storage.GetMany(ids, cancellationToken);
+        var memoryIds = ids.Select(id => (MemoryId)id).ToArray();
+        var memories = await _storage.GetMany(memoryIds, cancellationToken);
         
         // Log results count
         _logger.LogInformation("GetMany completed. RequestedCount: {RequestedCount}, FoundCount: {FoundCount}", ids.Length, memories.Count);
@@ -596,8 +706,9 @@ public class MemoryTools
         result.AppendLine();
         
         // Collect all related memory IDs for suggestion
-        var relatedMemoryIds = new HashSet<Guid>();
-        
+        var relatedMemoryIdSet = new HashSet<MemoryId>();
+        var inputIdSet = memoryIds.ToHashSet();
+
         foreach (var memory in memories)
         {
             result.AppendLine($"ID: {memory.Id}");
@@ -606,11 +717,13 @@ public class MemoryTools
                 result.AppendLine($"Title: {memory.Title}");
             }
             result.AppendLine($"Type: {memory.Type}");
+            result.AppendLine($"Owner: {FormatOwner(memory.Owner)}");
+            result.AppendLine($"Archetype: {memory.Archetype.ToStringValue()}{(memory.Archetype.IsArchived() ? " ⚠️ (hidden from default searches)" : "")}");
             result.AppendLine($"Text: {memory.Text}");
             result.AppendLine($"Source: {memory.Source}");
             result.AppendLine($"Tags: {(memory.Tags != null ? string.Join(", ", memory.Tags) : "none")}");
             result.AppendLine($"Confidence: {memory.Confidence:F2}");
-            
+
             // List relationships and collect related IDs
             if (memory.Relationships is { Count: > 0 })
             {
@@ -621,26 +734,26 @@ public class MemoryTools
                     var direction = rel.FromMemoryId == memory.Id ? "→" : "←";
                     var relatedTitle = rel.RelatedMemoryTitle ?? "Untitled";
                     var relatedType = rel.RelatedMemoryType ?? "unknown";
-                    
+
                     result.AppendLine($"  • [{rel.Type.ToUpper()}] {direction} \"{relatedTitle}\" ({relatedType}) [ID: {relatedId}]");
-                    
+
                     // Collect related memory IDs (excluding memories we already have)
-                    if (rel.FromMemoryId != memory.Id && !ids.Contains(rel.FromMemoryId))
-                        relatedMemoryIds.Add(rel.FromMemoryId);
-                    if (rel.ToMemoryId != memory.Id && !ids.Contains(rel.ToMemoryId))
-                        relatedMemoryIds.Add(rel.ToMemoryId);
+                    if (rel.FromMemoryId != memory.Id && !inputIdSet.Contains(rel.FromMemoryId))
+                        relatedMemoryIdSet.Add(rel.FromMemoryId);
+                    if (rel.ToMemoryId != memory.Id && !inputIdSet.Contains(rel.ToMemoryId))
+                        relatedMemoryIdSet.Add(rel.ToMemoryId);
                 }
             }
-            
+
             result.AppendLine($"Created: {memory.CreatedAt:yyyy-MM-dd HH:mm:ss}");
             result.AppendLine();
         }
         
         // Add suggestion to load related memories if any exist
-        if (relatedMemoryIds.Count > 0)
+        if (relatedMemoryIdSet.Count > 0)
         {
             result.AppendLine("💡 Suggestion: These memories have relationships to other memories not included in this result.");
-            result.AppendLine($"Consider using GetMany with these additional IDs to load more related context: [{string.Join(", ", relatedMemoryIds)}]");
+            result.AppendLine($"Consider using GetMany with these additional IDs to load more related context: [{string.Join(", ", relatedMemoryIdSet)}]");
             result.AppendLine("This can provide additional relevant information and context for your task.");
         }
         
@@ -648,16 +761,16 @@ public class MemoryTools
         return result.ToString();
     }
 
-    [McpServerTool, Description("Create a relationship between two memories. Use this to link related reference materials, how-tos, or examples (e.g., 'example-of', 'explains', 'related-to'). Relationships help organize knowledge for easier retrieval and understanding.")]
-    public async Task<string> CreateRelationship(
+    [McpServerTool, Description("Create a reference (relationship) between two memories. Use this to link related reference materials, how-tos, or examples (e.g., 'example-of', 'explains', 'related-to'). References help organize knowledge for easier retrieval and understanding.")]
+    public async Task<string> CreateReference(
         [Description("The ID of the source memory (e.g., the reference or how-to that is providing context)")] Guid fromId,
         [Description("The ID of the target memory (e.g., the example or related reference)")] Guid toId,
-        [Description("The type of relationship (e.g., 'example-of', 'explains', 'related-to'). Use relationships to connect and organize knowledge.")] string type,
+        [Description("The type of reference (e.g., 'example-of', 'explains', 'related-to'). Use references to connect and organize knowledge.")] string type,
         CancellationToken cancellationToken = default
     )
     {
-        var rel = await _storage.CreateRelationship(fromId, toId, type, cancellationToken);
-        return $"Relationship created: {rel.Id} from {rel.FromMemoryId} to {rel.ToMemoryId} (type: {rel.Type})";
+        var rel = await _storage.CreateRelationship((MemoryId)fromId, (MemoryId)toId, type, cancellationToken);
+        return $"Reference created: {rel.Id} from {rel.FromMemoryId} to {rel.ToMemoryId} (type: {rel.Type})";
     }
 
     [McpServerTool, Description("Revert a memory to a previous version. Restores all content and metadata (title, type, tags, confidence) from the specified version. Creates a new version recording the revert operation and regenerates embeddings. Use Get with includeVersionHistory=true to see available versions first.")]
@@ -677,8 +790,11 @@ public class MemoryTools
             {"changed.by", changedBy ?? "unspecified"}
         }));
 
+        var memoryId = (MemoryId)id;
+        var targetVersion = new VersionNumber(versionNumber);
+
         // First check the memory exists
-        var existingMemory = await _storage.Get(id, cancellationToken);
+        var existingMemory = await _storage.Get(memoryId, cancellationToken);
         if (existingMemory == null)
         {
             _logger.LogInformation("Cannot revert: Memory not found for ID: {MemoryId}", id);
@@ -687,13 +803,13 @@ public class MemoryTools
         }
 
         // Check if already at the target version
-        if (existingMemory.CurrentVersion == versionNumber)
+        if ((int)existingMemory.CurrentVersion == versionNumber)
         {
             return $"Memory is already at version {versionNumber}. No changes made.";
         }
 
         // Perform the revert
-        var revertedMemory = await _storage.RevertToVersion(id, versionNumber, changedBy, cancellationToken);
+        var revertedMemory = await _storage.RevertToVersion(memoryId, targetVersion, changedBy, cancellationToken);
 
         if (revertedMemory == null)
         {
@@ -721,6 +837,197 @@ public class MemoryTools
         result.AppendLine("Note: A new version has been created recording this revert. Embeddings have been regenerated.");
         result.AppendLine("Use Get with id to see the full restored content.");
 
+        return result.ToString();
+    }
+
+    // ===== Archival Tools =====
+
+    [McpServerTool, Description("Archive a memory, marking it as obsolete. Archived memories are hidden from default searches and relationship displays but preserved for historical reference and audit trails. Use this when consolidating memories or marking outdated content.")]
+    public async Task<string> ArchiveMemory(
+        [Description("The ID of the memory to archive.")] Guid id,
+        CancellationToken cancellationToken = default
+    )
+    {
+        using var activity = TelemetryConfig.ActivitySource.StartActivity("MemoryTools.ArchiveMemory");
+
+        var memoryId = (MemoryId)id;
+
+        // First check the memory exists
+        var existingMemory = await _storage.Get(memoryId, cancellationToken);
+        if (existingMemory == null)
+        {
+            _logger.LogInformation("Cannot archive: Memory not found for ID: {MemoryId}", id);
+            activity?.SetStatus(ActivityStatusCode.Ok, "Memory not found");
+            return $"Memory with ID {id} not found. Cannot archive.";
+        }
+
+        // Check if already archived
+        if (existingMemory.Archetype == ArchetypeEnum.Archived)
+        {
+            return $"Memory {id} is already archived. No changes made.";
+        }
+
+        // Archive the memory
+        var archivedMemory = await _storage.UpdateMemoryArchetypeAsync(memoryId, ArchetypeEnum.Archived, cancellationToken);
+
+        if (archivedMemory == null)
+        {
+            _logger.LogWarning("Failed to archive memory {MemoryId}", id);
+            activity?.SetStatus(ActivityStatusCode.Error, "Archive failed");
+            return $"Failed to archive memory {id}.";
+        }
+
+        _logger.LogInformation("Memory {MemoryId} archived. Previous archetype: {OldArchetype}",
+            id, existingMemory.Archetype.ToStringValue());
+
+        activity?.SetStatus(ActivityStatusCode.Ok, "Memory archived successfully");
+
+        StringBuilder result = new();
+        result.AppendLine($"✅ Memory successfully archived.");
+        result.AppendLine();
+        result.AppendLine($"  ID: {archivedMemory.Id}");
+        result.AppendLine($"  Title: {archivedMemory.Title ?? "Untitled"}");
+        result.AppendLine($"  Previous Archetype: {existingMemory.Archetype.ToStringValue()}");
+        result.AppendLine($"  New Archetype: archived");
+        result.AppendLine();
+        result.AppendLine("The memory is now hidden from default searches and relationship displays.");
+        result.AppendLine("Use RestoreMemory to restore it, or ListArchived to view all archived memories.");
+
+        return result.ToString();
+    }
+
+    [McpServerTool, Description("Restore an archived memory back to active status. The memory will become visible in searches and relationship displays again.")]
+    public async Task<string> RestoreMemory(
+        [Description("The ID of the archived memory to restore.")] Guid id,
+        [Description("The archetype to restore to: 'document' for living, editable content or 'record' for historical, immutable records. Default is 'document'.")] string restoreAs = "document",
+        CancellationToken cancellationToken = default
+    )
+    {
+        using var activity = TelemetryConfig.ActivitySource.StartActivity("MemoryTools.RestoreMemory");
+
+        var memoryId = (MemoryId)id;
+
+        // Parse the restore archetype
+        var targetArchetype = ArchetypeEnumExtensions.ParseArchetype(restoreAs);
+        if (targetArchetype == ArchetypeEnum.Archived)
+        {
+            return "Cannot restore to 'archived' status. Use ArchiveMemory instead if you want to archive the memory.";
+        }
+
+        // First check the memory exists
+        var existingMemory = await _storage.Get(memoryId, cancellationToken);
+        if (existingMemory == null)
+        {
+            _logger.LogInformation("Cannot restore: Memory not found for ID: {MemoryId}", id);
+            activity?.SetStatus(ActivityStatusCode.Ok, "Memory not found");
+            return $"Memory with ID {id} not found. Cannot restore.";
+        }
+
+        // Check if already active
+        if (existingMemory.Archetype != ArchetypeEnum.Archived)
+        {
+            return $"Memory {id} is not archived (current archetype: {existingMemory.Archetype.ToStringValue()}). No changes made.";
+        }
+
+        // Restore the memory
+        var restoredMemory = await _storage.UpdateMemoryArchetypeAsync(memoryId, targetArchetype, cancellationToken);
+
+        if (restoredMemory == null)
+        {
+            _logger.LogWarning("Failed to restore memory {MemoryId}", id);
+            activity?.SetStatus(ActivityStatusCode.Error, "Restore failed");
+            return $"Failed to restore memory {id}.";
+        }
+
+        _logger.LogInformation("Memory {MemoryId} restored to archetype: {NewArchetype}",
+            id, targetArchetype.ToStringValue());
+
+        activity?.SetStatus(ActivityStatusCode.Ok, "Memory restored successfully");
+
+        StringBuilder result = new();
+        result.AppendLine($"✅ Memory successfully restored.");
+        result.AppendLine();
+        result.AppendLine($"  ID: {restoredMemory.Id}");
+        result.AppendLine($"  Title: {restoredMemory.Title ?? "Untitled"}");
+        result.AppendLine($"  Previous Archetype: archived");
+        result.AppendLine($"  New Archetype: {targetArchetype.ToStringValue()}");
+        result.AppendLine();
+        result.AppendLine("The memory is now visible in searches and relationship displays.");
+
+        return result.ToString();
+    }
+
+    [McpServerTool, Description("List archived memories with pagination. Use this to browse obsolete content for reference, audit, or potential restoration.")]
+    public async Task<string> ListArchived(
+        [Description("Page number (1-based). Default is 1.")] int page = 1,
+        [Description("Number of results per page. Default is 20, max is 100.")] int pageSize = 20,
+        [Description("Optional project ID to filter archived memories by project.")] Guid? projectId = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        using var activity = TelemetryConfig.ActivitySource.StartActivity("MemoryTools.ListArchived");
+
+        // Validate pagination
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        ProjectId? typedProjectId = projectId.HasValue ? new ProjectId(projectId.Value) : null;
+
+        var (memories, totalCount) = await _storage.GetArchivedMemoriesAsync(page, pageSize, typedProjectId, cancellationToken);
+
+        _logger.LogInformation("ListArchived completed. Page: {Page}, PageSize: {PageSize}, ResultCount: {ResultCount}, TotalCount: {TotalCount}",
+            page, pageSize, memories.Count, totalCount);
+
+        if (memories.Count == 0)
+        {
+            activity?.SetStatus(ActivityStatusCode.Ok, "No archived memories found");
+            if (projectId.HasValue)
+            {
+                return $"No archived memories found in project {projectId.Value}.";
+            }
+            return "No archived memories found.";
+        }
+
+        StringBuilder result = new();
+        var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+
+        result.AppendLine($"📦 Archived Memories (Page {page} of {totalPages}, {totalCount} total):");
+        if (projectId.HasValue)
+        {
+            result.AppendLine($"Filtered by project: {projectId.Value}");
+        }
+        result.AppendLine();
+
+        foreach (var memory in memories)
+        {
+            result.AppendLine($"ID: {memory.Id}");
+            result.AppendLine($"  Title: {memory.Title ?? "Untitled"}");
+            result.AppendLine($"  Type: {memory.Type}");
+            result.AppendLine($"  Owner: {FormatOwner(memory.Owner)}");
+            result.AppendLine($"  Tags: {(memory.Tags != null ? string.Join(", ", memory.Tags) : "none")}");
+            result.AppendLine($"  Updated: {memory.UpdatedAt:yyyy-MM-dd HH:mm:ss}");
+            result.AppendLine();
+        }
+
+        if (totalPages > 1)
+        {
+            result.AppendLine("---");
+            if (page < totalPages)
+            {
+                result.AppendLine($"Use ListArchived with page={page + 1} to see more results.");
+            }
+            if (page > 1)
+            {
+                result.AppendLine($"Use ListArchived with page={page - 1} to see previous results.");
+            }
+        }
+
+        result.AppendLine();
+        result.AppendLine("💡 Use RestoreMemory with a memory ID to restore it to active status.");
+        result.AppendLine("💡 Use Get with a memory ID to view full content of an archived memory.");
+
+        activity?.SetStatus(ActivityStatusCode.Ok, $"Listed {memories.Count} archived memories");
         return result.ToString();
     }
 }

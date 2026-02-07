@@ -191,7 +191,7 @@ async function loadVersion() {
 
         // Set compare link
         document.getElementById('compareWithCurrentLink').href =
-            `/ui/view/${memoryId}/compare/${versionNumber}/${currentVersion}`;
+            `/view/${memoryId}/compare/${versionNumber}/${currentVersion}`;
 
         // Render content
         const textEl = document.getElementById('versionText');
@@ -242,7 +242,7 @@ async function confirmRevert() {
 
         // Close modal and redirect to the memory view page
         bootstrap.Modal.getInstance(document.getElementById('revertModal')).hide();
-        window.location.href = `/ui/view/${memoryId}`;
+        window.location.href = `/view/${memoryId}`;
     } catch (error) {
         console.error('Error reverting:', error);
         alert('Failed to revert to version. Please try again.');

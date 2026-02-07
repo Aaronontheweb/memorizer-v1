@@ -1,5 +1,6 @@
 using Memorizer.Settings;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace Memorizer.Controllers;
 
@@ -7,21 +8,25 @@ namespace Memorizer.Controllers;
 [Route("api/[controller]")]
 public class ConfigurationController : ControllerBase
 {
-    private readonly EmbeddingSettings _embeddingSettings;
-    private readonly LlmSettings _llmSettings;
+    private readonly IOptionsSnapshot<EmbeddingSettings> _embeddingSettingsSnapshot;
+    private readonly IOptionsSnapshot<LlmSettings> _llmSettingsSnapshot;
     private readonly ServerSettings _serverSettings;
     private readonly SearchSettings _searchSettings;
     private readonly IConfiguration _configuration;
 
+    // Convenience properties to access current settings
+    private EmbeddingSettings EmbeddingSettingsValue => _embeddingSettingsSnapshot.Value;
+    private LlmSettings LlmSettingsValue => _llmSettingsSnapshot.Value;
+
     public ConfigurationController(
-        EmbeddingSettings embeddingSettings,
-        LlmSettings llmSettings,
+        IOptionsSnapshot<EmbeddingSettings> embeddingSettingsSnapshot,
+        IOptionsSnapshot<LlmSettings> llmSettingsSnapshot,
         ServerSettings serverSettings,
         SearchSettings searchSettings,
         IConfiguration configuration)
     {
-        _embeddingSettings = embeddingSettings;
-        _llmSettings = llmSettings;
+        _embeddingSettingsSnapshot = embeddingSettingsSnapshot;
+        _llmSettingsSnapshot = llmSettingsSnapshot;
         _serverSettings = serverSettings;
         _searchSettings = searchSettings;
         _configuration = configuration;
@@ -37,9 +42,9 @@ public class ConfigurationController : ControllerBase
         {
             EmbeddingSettings = new EmbeddingConfigDto
             {
-                ApiConfigured = _embeddingSettings.ApiUrl != null,
-                Model = _embeddingSettings.Model,
-                Timeout = _embeddingSettings.Timeout.ToString()
+                ApiConfigured = EmbeddingSettingsValue.ApiUrl != null,
+                Model = EmbeddingSettingsValue.Model,
+                Timeout = EmbeddingSettingsValue.Timeout.ToString()
             },
             ServerSettings = new ServerConfigDto
             {

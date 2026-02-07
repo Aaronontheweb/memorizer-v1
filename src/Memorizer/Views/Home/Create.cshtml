@@ -46,6 +46,14 @@
                             </div>
                         </div>
                     </div>
+
+                    <div class="mb-3">
+                        <label for="location" class="form-label">Location</label>
+                        <select class="form-select" id="location">
+                            <option value="">Unfiled (no workspace/project)</option>
+                        </select>
+                        <div class="form-text">Assign this memory to a workspace or project</div>
+                    </div>
                     
                     <div class="mb-3">
                         <label for="content" class="form-label">Content <span class="text-danger">*</span></label>
@@ -131,13 +139,29 @@ document.getElementById('createMemoryForm').addEventListener('submit', async fun
             .map(tag => tag.trim())
             .filter(tag => tag.length > 0);
         
+        // Parse location selection
+        const locationValue = document.getElementById('location').value;
+        let workspaceId = null;
+        let projectId = null;
+
+        if (locationValue) {
+            const [type, id] = locationValue.split(':');
+            if (type === 'workspace') {
+                workspaceId = id;
+            } else if (type === 'project') {
+                projectId = id;
+            }
+        }
+
         const requestData = {
             title: document.getElementById('title').value || null,
             type: document.getElementById('type').value,
             content: document.getElementById('content').value,
             source: document.getElementById('source').value,
             tags: tags.length > 0 ? tags : null,
-            confidence: parseFloat(document.getElementById('confidence').value)
+            confidence: parseFloat(document.getElementById('confidence').value),
+            workspaceId: workspaceId,
+            projectId: projectId
         };
         
         const response = await fetch('/api/memory', {
@@ -149,8 +173,9 @@ document.getElementById('createMemoryForm').addEventListener('submit', async fun
         });
         
         if (response.ok) {
-            // Success - redirect to the memory list
-            window.location.href = '/ui';
+            // Success - redirect to view the newly created memory
+            const createdMemory = await response.json();
+            window.location.href = `/view/${createdMemory.id}`;
         } else {
             const errorData = await response.json();
             throw new Error(errorData.title || 'Failed to create memory');
@@ -163,6 +188,79 @@ document.getElementById('createMemoryForm').addEventListener('submit', async fun
         submitBtn.disabled = false;
     }
 });
+
+// Load workspace tree and populate the location dropdown
+async function loadLocationOptions() {
+    const locationSelect = document.getElementById('location');
+
+    try {
+        const response = await fetch('/api/workspace-tree');
+        if (!response.ok) {
+            console.error('Failed to load workspace tree');
+            return;
+        }
+
+        const data = await response.json();
+
+        // Build hierarchical options from workspaces
+        function addWorkspaceOptions(workspaces, prefix = '') {
+            for (const ws of workspaces) {
+                const indent = prefix ? prefix + ' ' : '';
+
+                // Add workspace option
+                const wsOption = document.createElement('option');
+                wsOption.value = `workspace:${ws.id}`;
+                wsOption.textContent = indent + '📁 ' + ws.name;
+                if (!prefix) wsOption.style.fontWeight = 'bold';
+                locationSelect.appendChild(wsOption);
+
+                // Add projects under this workspace
+                if (ws.projects && ws.projects.length > 0) {
+                    addProjectOptions(ws.projects, prefix + '──');
+                }
+
+                // Add nested workspaces
+                if (ws.children && ws.children.length > 0) {
+                    addWorkspaceOptions(ws.children, prefix + '──');
+                }
+            }
+        }
+
+        function addProjectOptions(projects, prefix) {
+            for (const proj of projects) {
+                const option = document.createElement('option');
+                option.value = `project:${proj.id}`;
+                option.textContent = prefix + ' 📋 ' + proj.name;
+                locationSelect.appendChild(option);
+
+                // Add nested projects
+                if (proj.children && proj.children.length > 0) {
+                    addProjectOptions(proj.children, prefix + '──');
+                }
+            }
+        }
+
+        if (data.workspaces) {
+            addWorkspaceOptions(data.workspaces);
+        }
+
+        // Pre-select location based on query parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const projectId = urlParams.get('projectId');
+        const workspaceId = urlParams.get('workspaceId');
+
+        if (projectId) {
+            locationSelect.value = `project:${projectId}`;
+        } else if (workspaceId) {
+            locationSelect.value = `workspace:${workspaceId}`;
+        }
+    } catch (error) {
+        console.error('Error loading workspace tree:', error);
+    }
+}
+
+// Load location options on page load
+loadLocationOptions();
 
 // Add some helpful example content based on type selection
 document.getElementById('type').addEventListener('change', function() {

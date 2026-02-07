@@ -1,3 +1,5 @@
+using Memorizer.Models;
+
 namespace Memorizer.Actors;
 
 /// <summary>
@@ -13,7 +15,7 @@ public record RegenerateAllEmbeddings(
 /// Request to regenerate embeddings for a specific memory
 /// </summary>
 public record RegenerateEmbeddingsForMemory(
-    Guid MemoryId,
+    MemoryId MemoryId,
     string Title,
     string Text,
     string[] Tags,
@@ -24,7 +26,7 @@ public record RegenerateEmbeddingsForMemory(
 /// Notification that embedding regeneration completed for a memory
 /// </summary>
 public record EmbeddingRegenerationCompleted(
-    Guid MemoryId,
+    MemoryId MemoryId,
     string RequestedBy
 );
 
@@ -32,7 +34,7 @@ public record EmbeddingRegenerationCompleted(
 /// Notification that embedding regeneration failed for a memory
 /// </summary>
 public record EmbeddingRegenerationFailed(
-    Guid MemoryId,
+    MemoryId MemoryId,
     string ErrorMessage,
     string RequestedBy,
     Exception? Exception = null
@@ -46,7 +48,7 @@ public record BatchEmbeddingRegenerationCompleted(
     DateTime StartTime,
     int TotalProcessed,
     int TotalSuccessful,
-    List<Guid> FailedMemoryIds,
+    List<MemoryId> FailedMemoryIds,
     TimeSpan Duration
 );
 
@@ -77,7 +79,7 @@ public record EmbeddingRegenerationStatus(
     int? TotalSuccessful = null,
     int? TotalFailed = null,
     int? Outstanding = null,
-    List<Guid>? FailedMemoryIds = null,
+    List<MemoryId>? FailedMemoryIds = null,
     DateTime? StartTime = null,
     TimeSpan? Duration = null,
     string? RequestedBy = null

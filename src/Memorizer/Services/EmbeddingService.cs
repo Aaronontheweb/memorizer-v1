@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Memorizer.Models;
 using Memorizer.Settings;
+using Microsoft.Extensions.Options;
 
 namespace Memorizer.Services;
 
@@ -17,24 +18,34 @@ public interface IEmbeddingService
     );
 }
 
+/// <summary>
+/// Embedding service that uses IOptionsSnapshot for reloadable configuration.
+/// Register as Scoped to get fresh settings on each request scope.
+/// </summary>
 public class EmbeddingService : IEmbeddingService
 {
     private readonly HttpClient _httpClient;
-    private readonly EmbeddingSettings _settings;
+    private readonly IOptionsSnapshot<EmbeddingSettings> _settingsSnapshot;
     private readonly IEmbeddingDimensionService _dimensionService;
     private readonly ILogger<EmbeddingService> _logger;
 
+    // Convenience property to get current settings value
+    private EmbeddingSettings Settings => _settingsSnapshot.Value;
+
     public EmbeddingService(
         HttpClient httpClient,
-        EmbeddingSettings settings,
+        IOptionsSnapshot<EmbeddingSettings> settingsSnapshot,
         IEmbeddingDimensionService dimensionService,
         ILogger<EmbeddingService> logger)
     {
         _httpClient = httpClient;
-        _settings = settings;
+        _settingsSnapshot = settingsSnapshot;
         _dimensionService = dimensionService;
         _logger = logger;
-        _httpClient.Timeout = _settings.Timeout;
+
+        // Configure HttpClient with current settings
+        _httpClient.BaseAddress = Settings.ApiUrl;
+        _httpClient.Timeout = Settings.Timeout;
     }
 
     public async Task<float[]> Generate(
@@ -46,9 +57,9 @@ public class EmbeddingService : IEmbeddingService
         {
             _logger.LogDebug("Generating embedding for text of length {TextLength}", text.Length);
 
-            EmbeddingRequest request = new() { Model = _settings.Model, Prompt = text };
+            EmbeddingRequest request = new() { Model = Settings.Model, Prompt = text };
 
-            _logger.LogDebug("Sending request to embedding API at {ApiUrl}", _settings.ApiUrl);
+            _logger.LogDebug("Sending request to embedding API at {ApiUrl}", Settings.ApiUrl);
             HttpResponseMessage response = await _httpClient.PostAsJsonAsync(
                 "api/embeddings",
                 request,
