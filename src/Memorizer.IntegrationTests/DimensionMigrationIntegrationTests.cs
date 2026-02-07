@@ -3,6 +3,8 @@ using Akka.Hosting;
 using Akka.Hosting.TestKit;
 using Memorizer.Actors;
 using Memorizer.IntegrationTests.Fakes;
+using Memorizer.Models;
+using Memorizer.Models.ValueTypes;
 using Memorizer.Services;
 using Memorizer.Settings;
 using Microsoft.Extensions.Configuration;
@@ -57,7 +59,7 @@ public class DimensionMigrationIntegrationTests : TestKit
             "Test content for null embedding test",
             "test",
             new[] { "null-test" },
-            1.0,
+            new Confidence(1.0),
             "Null Test Memory");
 
         _output.WriteLine($"Created memory {memory.Id}");
@@ -81,7 +83,7 @@ public class DimensionMigrationIntegrationTests : TestKit
 
         await using var updateCmd = new NpgsqlCommand(
             "UPDATE memories SET embedding = NULL, embedding_metadata = NULL WHERE id = @id", conn);
-        updateCmd.Parameters.AddWithValue("id", memory.Id);
+        updateCmd.Parameters.AddWithValue("id", memory.Id.Value);
         await updateCmd.ExecuteNonQueryAsync();
 
         _output.WriteLine("Set embeddings to NULL");
@@ -151,7 +153,7 @@ public class DimensionMigrationIntegrationTests : TestKit
         // Create some test memories
         for (int i = 0; i < 3; i++)
         {
-            await storage.StoreMemory("test", $"Content {i}", "test", new[] { "concurrent-test" }, 1.0, $"Memory {i}");
+            await storage.StoreMemory("test", $"Content {i}", "test", new[] { "concurrent-test" }, new Confidence(1.0), $"Memory {i}");
         }
 
         // Switch to target dimensions to simulate model change that triggers migration
@@ -219,7 +221,7 @@ public class DimensionMigrationIntegrationTests : TestKit
         // We need to temporarily set fake service to 384d to create valid memories
         _fakeEmbeddingService!.SetDimensions(DimensionMigrationTestFixture.StartingModelDimensions);
 
-        var testMemories = new List<Memorizer.Models.Memory>();
+        var testMemories = new List<Memory>();
         for (int i = 0; i < 5; i++)
         {
             var mem = await storage.StoreMemory(
@@ -227,7 +229,7 @@ public class DimensionMigrationIntegrationTests : TestKit
                 $"Test content {i} for dimension migration",
                 "test",
                 new[] { "migration-test" },
-                1.0,
+                new Confidence(1.0),
                 $"Migration Test Memory {i}");
             testMemories.Add(mem);
             _output.WriteLine($"Created memory {mem.Id}");

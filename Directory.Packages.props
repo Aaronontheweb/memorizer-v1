@@ -8,6 +8,7 @@
   <ItemGroup>
     <PackageVersion Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
     <PackageVersion Include="Configuration.Extensions.EnvironmentFile" Version="2.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="$(MsftVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="$(MsftVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="$(MsftVersion)" />
@@ -16,7 +17,7 @@
     <PackageVersion Include="ModelContextProtocol" Version="0.4.0-preview.3" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="0.4.0-preview.3" />
     <PackageVersion Include="Npgsql" Version="10.0.0" />
-    <PackageVersion Include="OllamaSharp" Version="5.4.11" />
+    <PackageVersion Include="OllamaSharp" Version="5.4.12" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.14.0" />
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.14.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.14.0" />
@@ -27,15 +28,16 @@
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="Dapper" Version="2.1.66" />
     <PackageVersion Include="DiffPlex" Version="1.9.0" />
-    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.2" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageVersion Include="Spectre.Console" Version="0.54.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.9.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="Akka.Hosting" Version="1.5.55.1" />
-    <PackageVersion Include="Akka.Hosting.TestKit" Version="1.5.55.1" />
+    <PackageVersion Include="Akka.Hosting.TestKit" Version="1.5.58" />
     <PackageVersion Include="Akka.Persistence.Sql.Hosting" Version="1.5.55.1" />
-    <PackageVersion Include="Akka.Streams" Version="1.5.56" />
+    <PackageVersion Include="Akka.Streams" Version="1.5.58" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="$(MsftVersion)" />
   </ItemGroup>
 </Project>

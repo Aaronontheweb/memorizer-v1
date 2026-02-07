@@ -4,6 +4,7 @@ using Akka.Event;
 using Akka.Streams;
 using Akka.Streams.Dsl;
 using Akka.Streams.Stage;
+using Memorizer.Models;
 
 namespace Memorizer.Actors;
 
@@ -24,7 +25,7 @@ public sealed class ProgressJobManager
     public int FailureCount { get; private set; }
     public string RequestedBy { get; private set; } = string.Empty;
     public DateTime StartTime { get; private set; }
-    public List<Guid> FailedIds { get; } = new();
+    public List<MemoryId> FailedIds { get; } = new();
     public JobStatus CurrentStatus { get; private set; } = JobStatus.Idle;
 
     public ProgressJobManager(ILoggingAdapter logger, IMaterializer materializer)
@@ -106,7 +107,7 @@ public sealed class ProgressJobManager
     /// <summary>
     /// Record a failed item processing. Increments counters, records the failed ID, and broadcasts.
     /// </summary>
-    public void RecordFailure(Guid failedId)
+    public void RecordFailure(MemoryId failedId)
     {
         ProcessedCount++;
         FailureCount++;

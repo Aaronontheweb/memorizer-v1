@@ -4,28 +4,32 @@ using Memorizer.Actors;
 using Memorizer.Services;
 using Memorizer.Settings;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using System.Threading.Tasks;
 
 namespace Memorizer.Controllers;
 
-[Route("ui/tools")]
+[Route("tools")]
 public class ToolsController : Controller
 {
     private readonly IActorRef _titleGenerationActor;
     private readonly IActorRef _embeddingRegenerationActor;
     private readonly IActorRef _versionPurgeActor;
     private readonly IActorRef _dimensionMigrationActor;
-    private readonly LlmSettings _llmSettings;
+    private readonly IOptionsSnapshot<LlmSettings> _llmSettingsSnapshot;
     private readonly IEmbeddingDimensionService _dimensionService;
     private readonly IDimensionMismatchState _mismatchState;
     private readonly ILogger<ToolsController> _logger;
+
+    // Convenience property to access current settings
+    private LlmSettings LlmSettingsValue => _llmSettingsSnapshot.Value;
 
     public ToolsController(
         IRequiredActor<TitleGenerationActorKey> titleGenerationActor,
         IRequiredActor<EmbeddingRegenerationActorKey> embeddingRegenerationActor,
         IRequiredActor<VersionPurgeActorKey> versionPurgeActor,
         IRequiredActor<DimensionMigrationActorKey> dimensionMigrationActor,
-        LlmSettings llmSettings,
+        IOptionsSnapshot<LlmSettings> llmSettingsSnapshot,
         IEmbeddingDimensionService dimensionService,
         IDimensionMismatchState mismatchState,
         ILogger<ToolsController> logger)
@@ -34,7 +38,7 @@ public class ToolsController : Controller
         _embeddingRegenerationActor = embeddingRegenerationActor.ActorRef;
         _versionPurgeActor = versionPurgeActor.ActorRef;
         _dimensionMigrationActor = dimensionMigrationActor.ActorRef;
-        _llmSettings = llmSettings;
+        _llmSettingsSnapshot = llmSettingsSnapshot;
         _dimensionService = dimensionService;
         _mismatchState = mismatchState;
         _logger = logger;
@@ -106,7 +110,7 @@ public class ToolsController : Controller
 
             return Json(new {
                 success = true,
-                message = $"Title generation started for up to {batchSize} memories using model '{_llmSettings.Model}'",
+                message = $"Title generation started for up to {batchSize} memories using model '{LlmSettingsValue.Model}'",
                 totalItems = startStatus.Outstanding + startStatus.TotalProcessed,
                 isRunning = startStatus.IsRunning
             });
@@ -156,8 +160,8 @@ public class ToolsController : Controller
                 success = true,
                 isConfigured = configStatus.IsConfigured,
                 reason = configStatus.Reason,
-                model = _llmSettings.Model,
-                apiUrl = _llmSettings.ApiUrl.ToString()
+                model = LlmSettingsValue.Model,
+                apiUrl = LlmSettingsValue.ApiUrl.ToString()
             });
         }
         catch (Exception ex)
@@ -169,20 +173,22 @@ public class ToolsController : Controller
 
     private (bool IsConfigured, string Reason) CheckLlmConfiguration()
     {
+        var llmSettings = LlmSettingsValue;
+
         // Check if we have basic LLM settings
-        if (_llmSettings == null)
+        if (llmSettings == null)
         {
             return (false, "LLM settings not found in configuration");
         }
 
         // Check if model is configured
-        if (string.IsNullOrWhiteSpace(_llmSettings.Model))
+        if (string.IsNullOrWhiteSpace(llmSettings.Model))
         {
             return (false, "No LLM model configured. Please configure the 'LLM:Model' setting.");
         }
 
         // Check if API URL is configured
-        if (_llmSettings.ApiUrl == null)
+        if (llmSettings.ApiUrl == null)
         {
             return (false, "LLM service URL not configured. Please configure 'LLM:ApiUrl' setting.");
         }

@@ -1,4 +1,6 @@
 using Memorizer.Extensions;
+using Memorizer.Models;
+using Memorizer.Models.ValueTypes;
 using Memorizer.Services;
 using Memorizer.Settings;
 using Microsoft.Extensions.Configuration;
@@ -81,7 +83,7 @@ public class WebUIIntegrationTests : IDisposable
             "Test memory for web UI functionality",
             "test",
             new[] { "web-ui", "test" },
-            0.9,
+            new Confidence(0.9),
             "Web UI Test Memory"
         );
 
@@ -103,7 +105,7 @@ public class WebUIIntegrationTests : IDisposable
     {
         // Arrange
         var storage = _serviceProvider.GetRequiredService<IStorage>();
-        var createdMemories = new List<Guid>();
+        var createdMemories = new List<MemoryId>();
 
         try
         {
@@ -115,7 +117,7 @@ public class WebUIIntegrationTests : IDisposable
                     $"Memory {i} for pagination testing",
                     "test",
                     new[] { "pagination", "test" },
-                    1.0,
+                    new Confidence(1.0),
                     $"Pagination Memory {i}"
                 );
                 createdMemories.Add(memory.Id);
@@ -159,7 +161,7 @@ public class WebUIIntegrationTests : IDisposable
             "Original content",
             "test",
             new[] { "update", "test" },
-            0.8,
+            new Confidence(0.8),
             "Original Title"
         );
 
@@ -172,7 +174,7 @@ public class WebUIIntegrationTests : IDisposable
                 "Updated content for web UI",
                 "test",
                 new[] { "updated", "test", "web-ui" },
-                0.95,
+                new Confidence(0.95),
                 "Updated Title for Web UI",
                 CancellationToken.None
             );
@@ -184,7 +186,7 @@ public class WebUIIntegrationTests : IDisposable
             Assert.Equal("Updated content for web UI", updatedMemory.Text);
             Assert.Equal("Updated Title for Web UI", updatedMemory.Title);
             Assert.Equal("updated-test", updatedMemory.Type);
-            Assert.Equal(0.95, updatedMemory.Confidence);
+            Assert.Equal(new Confidence(0.95), updatedMemory.Confidence);
 
             // Verify persistence
             var retrieved = await storage.Get(originalMemory.Id, CancellationToken.None);
@@ -206,7 +208,7 @@ public class WebUIIntegrationTests : IDisposable
         // Arrange
         var storage = _serviceProvider.GetRequiredService<IStorage>();
         var statsService = _serviceProvider.GetRequiredService<IMemoryStatsService>();
-        var createdMemories = new List<Guid>();
+        var createdMemories = new List<MemoryId>();
 
         try
         {
@@ -227,7 +229,7 @@ public class WebUIIntegrationTests : IDisposable
                     content,
                     "test",
                     new[] { "stats-test" },
-                    1.0,
+                    new Confidence(1.0),
                     $"Stats Test - {type}"
                 );
                 createdMemories.Add(memory.Id);
@@ -258,7 +260,7 @@ public class WebUIIntegrationTests : IDisposable
     {
         // Arrange
         var storage = _serviceProvider.GetRequiredService<IStorage>();
-        var createdMemories = new List<Guid>();
+        var createdMemories = new List<MemoryId>();
 
         try
         {
@@ -279,7 +281,7 @@ public class WebUIIntegrationTests : IDisposable
                     content,
                     "test",
                     new[] { "type-test" },
-                    1.0,
+                    new Confidence(1.0),
                     $"Type Test - {type}"
                 );
                 createdMemories.Add(memory.Id);
@@ -312,7 +314,7 @@ public class WebUIIntegrationTests : IDisposable
     {
         // Arrange
         var storage = _serviceProvider.GetRequiredService<IStorage>();
-        var createdMemories = new List<Guid>();
+        var createdMemories = new List<MemoryId>();
 
         try
         {
@@ -332,7 +334,7 @@ public class WebUIIntegrationTests : IDisposable
                     content,
                     "test",
                     tags,
-                    1.0,
+                    new Confidence(1.0),
                     $"Search Test: {content}"
                 );
                 createdMemories.Add(memory.Id);
@@ -342,7 +344,7 @@ public class WebUIIntegrationTests : IDisposable
             var programmingResults = await storage.Search(
                 "programming languages tutorial",
                 limit: 10,
-                minSimilarity: 0.3,
+                new SimilarityScore(0.3),
                 filterTags: new[] { "programming" }
             );
 
@@ -350,7 +352,7 @@ public class WebUIIntegrationTests : IDisposable
             var webResults = await storage.Search(
                 "web development practices",
                 limit: 10,
-                minSimilarity: 0.3,
+                new SimilarityScore(0.3),
                 filterTags: new[] { "web" }
             );
 
@@ -400,7 +402,7 @@ public class WebUIIntegrationTests : IDisposable
             "Memory to be deleted",
             "test",
             new[] { "delete", "test" },
-            1.0,
+            new Confidence(1.0),
             "Memory for Deletion Test"
         );
 
@@ -424,7 +426,7 @@ public class WebUIIntegrationTests : IDisposable
     {
         // This tests the system's behavior with edge cases that the Web UI might encounter
         var storage = _serviceProvider.GetRequiredService<IStorage>();
-        var createdMemories = new List<Guid>();
+        var createdMemories = new List<MemoryId>();
 
         try
         {
@@ -434,7 +436,7 @@ public class WebUIIntegrationTests : IDisposable
                 "Valid content with empty type",
                 "test",
                 new[] { "test", "edge-case" },
-                1.0,
+                new Confidence(1.0),
                 "Empty Type Test"
             );
             Assert.NotNull(memoryWithEmptyType);
@@ -447,7 +449,7 @@ public class WebUIIntegrationTests : IDisposable
                 "",
                 "test",
                 new[] { "test", "edge-case" },
-                1.0,
+                new Confidence(1.0),
                 "Empty Content Test"
             );
             Assert.NotNull(memoryWithEmptyContent);
@@ -461,7 +463,7 @@ public class WebUIIntegrationTests : IDisposable
                 "Content with null tags",
                 "test",
                 null,
-                1.0,
+                new Confidence(1.0),
                 "Null Tags Test"
             );
             Assert.NotNull(memoryWithNullTags);
@@ -474,7 +476,7 @@ public class WebUIIntegrationTests : IDisposable
                 "Valid content with required title",
                 "test",
                 new[] { "test", "edge-case" },
-                1.0,
+                new Confidence(1.0),
                 "Required Title Test"
             );
             Assert.NotNull(memoryWithNonNullTitle);

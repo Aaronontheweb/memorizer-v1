@@ -3,7 +3,10 @@ using Akka.Hosting;
 using Akka.Hosting.TestKit;
 using Memorizer.Actors;
 using Memorizer.Models;
+using Memorizer.Models.ValueTypes;
+using Memorizer.Models.Enums;
 using Memorizer.Services;
+using Memorizer.Services.Providers;
 using Memorizer.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -34,10 +37,10 @@ public class TitleGenerationActorTests : TestKit
             Model = "test-model",
             Timeout = TimeSpan.FromMinutes(1)
         });
-        
-        // Add mock services (minimal implementations)
-        services.AddSingleton<IStorage, MockStorage>();
-        services.AddSingleton<ILlmService, MockLlmService>();
+
+        // Add mock services - use MockStorageWithMemories to test actual batch processing
+        services.AddSingleton<IStorage, MockStorageWithMemories>();
+        services.AddSingleton<IMemorizerAgentProvider, MockMemorizerAgentProvider>();
     }
 
     protected override void ConfigureAkka(AkkaConfigurationBuilder builder, IServiceProvider provider)
@@ -80,18 +83,9 @@ public class TitleGenerationActorTests : TestKit
     [Fact]
     public async Task TitleGenerationActor_ProgressStream_ShouldCompleteGracefully()
     {
-        // Arrange
-        var mockStorage = new MockStorageWithMemories();
-        var mockLlm = new MockLlmService();
-        var settings = new LlmSettings
-        {
-            ApiUrl = new Uri("http://localhost:11434"),
-            Model = "test-model",
-            Timeout = TimeSpan.FromMinutes(1)
-        };
-
-        // Create a new actor for this test
-        var testActor = Sys.ActorOf(TitleGenerationActor.Props(mockStorage, mockLlm, settings), "title-generation-test");
+        // Create a new actor for this test using the resolver from Akka.DependencyInjection
+        var resolver = Akka.DependencyInjection.DependencyResolver.For(Sys);
+        var testActor = Sys.ActorOf(resolver.Props<TitleGenerationActor>(), "title-generation-test");
 
         // Act - Subscribe BEFORE starting the batch (should get Idle status and complete immediately)
         var idleSubscription = await testActor.Ask<ProgressSubscription>(
@@ -147,50 +141,53 @@ public class TitleGenerationActorTests : TestKit
         {
             var memories = new List<Memory>
             {
-                new() { Id = Guid.NewGuid(), Text = "Test memory 1", Type = "test", Tags = [] },
-                new() { Id = Guid.NewGuid(), Text = "Test memory 2", Type = "test", Tags = [] },
-                new() { Id = Guid.NewGuid(), Text = "Test memory 3", Type = "test", Tags = [] }
+                new() { Id = MemoryId.New(), Text = "Test memory 1", Type = "test", Tags = [] },
+                new() { Id = MemoryId.New(), Text = "Test memory 2", Type = "test", Tags = [] },
+                new() { Id = MemoryId.New(), Text = "Test memory 3", Type = "test", Tags = [] }
             };
             return Task.FromResult(memories);
         }
 
-        public Task UpdateMemoryTitle(Guid memoryId, string title, CancellationToken cancellationToken = default)
+        public Task UpdateMemoryTitle(MemoryId id, string title, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<Memory> StoreMemory(string type, string text, string source, string[]? tags = null, double confidence = 1, string? title = null, Guid? relatedToId = null, string? relationshipType = null, CancellationToken cancellationToken = default)
+        public Task<Memory> StoreMemory(string type, string content, string source, string[]? tags, Confidence confidence, string title, MemoryId? relatedTo = null, string? relationshipType = null, MemoryOwner? owner = null, ArchetypeEnum archetype = ArchetypeEnum.Document, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<Memory?> Get(Guid id, CancellationToken cancellationToken = default)
+        public Task<Memory?> Get(MemoryId id, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<List<Memory>> GetMany(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
+        public Task<List<Memory>> GetMany(IEnumerable<MemoryId> ids, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<bool> Delete(Guid id, CancellationToken cancellationToken = default)
+        public Task<bool> Delete(MemoryId id, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<List<Memory>> Search(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
+        public Task<List<Memory>> Search(string query, int limit = 10, SimilarityScore? minSimilarity = null, string[]? filterTags = null, bool includeArchived = false, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<(List<Memory> Memories, int TotalCount)> GetMemoriesPaginated(int page, int pageSize, CancellationToken cancellationToken = default)
+        public Task<(List<Memory> Memories, int TotalCount)> GetMemoriesPaginated(int page = 1, int pageSize = 20, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<Memory?> UpdateMemory(Guid id, string type, string text, string source, string[]? tags = null, double confidence = 1, string? title = null, CancellationToken cancellationToken = default)
+        public Task<Memory?> UpdateMemory(MemoryId id, string type, string content, string source, string[]? tags, Confidence confidence, string? title = null, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<MemoryRelationship> CreateRelationship(Guid fromId, Guid toId, string relationshipType, CancellationToken cancellationToken = default)
+        public Task UpdateMemoryOwner(MemoryId id, MemoryOwner owner, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<MemoryRelationship> CreateRelationship(MemoryId fromId, MemoryId toId, string type, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<MemoryRelationship> CreateRelationship(Guid fromId, Guid toId, string relationshipType, double? score, CancellationToken cancellationToken = default)
+        public Task<MemoryRelationship> CreateRelationship(MemoryId fromId, MemoryId toId, string type, SimilarityScore? score, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<List<MemoryRelationship>> GetRelationships(Guid memoryId, string? relationshipType = null, CancellationToken cancellationToken = default)
+        public Task<List<MemoryRelationship>> GetRelationships(MemoryId memoryId, string? type = null, bool includeArchivedTargets = false, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<List<SimilarMemory>> GetSimilarMemories(Guid memoryId, double minSimilarity = 0.7, int limit = 10, CancellationToken cancellationToken = default)
+        public Task<List<SimilarMemory>> GetSimilarMemories(MemoryId memoryId, SimilarityScore? minSimilarity = null, int limit = 10, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<SimilarMemory>());
 
-        Task<List<string>> IStorage.GetDistinctMemoryTypes(CancellationToken cancellationToken)
+        public Task<List<string>> GetDistinctMemoryTypes(CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string> { "test", "mock" });
 
         public Task<int> CountMemoriesWithoutMetadataEmbeddings(CancellationToken cancellationToken = default)
@@ -199,35 +196,35 @@ public class TitleGenerationActorTests : TestKit
         public Task<List<Memory>> GetMemoriesWithoutMetadataEmbeddings(int limit, bool includeExisting = false, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<Memory>());
 
-        public Task UpdateMemoryMetadataEmbedding(Guid memoryId, Vector embedding, CancellationToken cancellationToken = default)
+        public Task UpdateMemoryMetadataEmbedding(MemoryId memoryId, Vector embedding, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task UpdateMemoryEmbeddings(Guid memoryId, Vector contentEmbedding, Vector metadataEmbedding, CancellationToken cancellationToken = default)
+        public Task UpdateMemoryEmbeddings(MemoryId memoryId, Vector contentEmbedding, Vector metadataEmbedding, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<List<Memory>> SearchWithFullEmbedding(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
+        public Task<List<Memory>> SearchWithFullEmbedding(string query, int limit = 10, SimilarityScore? minSimilarity = null, string[]? filterTags = null, bool includeArchived = false, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<List<Memory>> SearchWithMetadataEmbedding(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
+        public Task<List<Memory>> SearchWithMetadataEmbedding(string query, int limit = 10, SimilarityScore? minSimilarity = null, string[]? filterTags = null, ProjectId? projectId = null, bool includeUnassigned = false, bool includeArchived = false, bool includeSystem = false, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<(List<Memory> FullResults, List<Memory> MetadataResults)> CompareSearchMethods(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
+        public Task<(List<Memory> FullResults, List<Memory> MetadataResults)> CompareSearchMethods(string query, int limit = 10, SimilarityScore? minSimilarity = null, string[]? filterTags = null, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
         // Versioning support
-        public Task<List<MemoryEvent>> GetEvents(Guid memoryId, int? limit = null, CancellationToken cancellationToken = default)
+        public Task<List<MemoryEvent>> GetEvents(MemoryId memoryId, int? limit = null, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<MemoryEvent>());
 
-        public Task<List<MemoryVersion>> GetVersionHistory(Guid memoryId, int? limit = null, CancellationToken cancellationToken = default)
+        public Task<List<MemoryVersion>> GetVersionHistory(MemoryId memoryId, int? limit = null, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<MemoryVersion>());
 
-        public Task<MemoryVersion?> GetVersion(Guid memoryId, int versionNumber, CancellationToken cancellationToken = default)
+        public Task<MemoryVersion?> GetVersion(MemoryId memoryId, VersionNumber versionNumber, CancellationToken cancellationToken = default)
             => Task.FromResult<MemoryVersion?>(null);
 
-        public Task<Memory?> RevertToVersion(Guid memoryId, int versionNumber, string? changedBy = null, CancellationToken cancellationToken = default)
+        public Task<Memory?> RevertToVersion(MemoryId memoryId, VersionNumber versionNumber, string? changedBy = null, CancellationToken cancellationToken = default)
             => throw new NotImplementedException("Test mock");
 
-        public Task<int> PurgeVersionsKeepingLatest(Guid memoryId, int versionsToKeep, CancellationToken cancellationToken = default)
+        public Task<int> PurgeVersionsKeepingLatest(MemoryId memoryId, int versionsToKeep, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
 
         public Task<int> PurgeVersionsOlderThan(DateTime cutoffDate, CancellationToken cancellationToken = default)
@@ -235,113 +232,125 @@ public class TitleGenerationActorTests : TestKit
 
         public Task<VersionStats> GetVersionStats(CancellationToken cancellationToken = default)
             => Task.FromResult(new VersionStats());
+
+        // Provider settings
+        public Task<ProviderSettings?> GetActiveProviderAsync(string providerType, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProviderSettings?>(null);
+
+        public Task<IReadOnlyList<ProviderSettings>> GetAllProvidersAsync(string providerType, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProviderSettings>>(new List<ProviderSettings>());
+
+        public Task<ProviderSettings> SaveProviderSettingsAsync(ProviderSettings settings, CancellationToken cancellationToken = default)
+            => Task.FromResult(settings);
+
+        public Task SetActiveProviderAsync(string providerType, string providerName, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        // Workspace operations
+        public Task<Workspace> CreateWorkspaceAsync(string name, string? description = null, WorkspaceId? parentId = null, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException("Test mock");
+
+        public Task<Workspace?> GetWorkspaceAsync(WorkspaceId id, CancellationToken cancellationToken = default)
+            => Task.FromResult<Workspace?>(null);
+
+        public Task<Workspace?> GetWorkspaceBySlugAsync(string slug, WorkspaceId? parentId = null, CancellationToken cancellationToken = default)
+            => Task.FromResult<Workspace?>(null);
+
+        public Task<IReadOnlyList<Workspace>> GetWorkspacesAsync(WorkspaceId? parentId = null, bool includeSystem = false, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Workspace>>(new List<Workspace>());
+
+        public Task<Workspace> UpdateWorkspaceAsync(WorkspaceId id, string? name = null, string? description = null, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException("Test mock");
+
+        public Task DeleteWorkspaceAsync(WorkspaceId id, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException("Test mock");
+
+        // Project operations
+        public Task<Project> CreateProjectAsync(WorkspaceId workspaceId, string name, string? description = null, ProjectId? parentId = null, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException("Test mock");
+
+        public Task<Project?> GetProjectAsync(ProjectId id, CancellationToken cancellationToken = default)
+            => Task.FromResult<Project?>(null);
+
+        public Task<IReadOnlyList<Project>> GetProjectsAsync(WorkspaceId workspaceId, ProjectId? parentId = null, ProjectStatusEnum? statusFilter = null, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Project>>(new List<Project>());
+
+        public Task<Project> UpdateProjectAsync(ProjectId id, string? name = null, string? description = null, ProjectStatusEnum? status = null, string? victoryConditions = null, ProjectId? newParentId = null, bool makeTopLevel = false, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException("Test mock");
+
+        public Task DeleteProjectAsync(ProjectId id, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException("Test mock");
+
+        // Memory owner operations
+        public Task SetMemoryOwnerAsync(MemoryId memoryId, MemoryOwner owner, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task MoveMemoryToUnfiledAsync(MemoryId memoryId, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<Memory>> GetMemoriesByOwnerAsync(MemoryOwner owner, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Memory>>(new List<Memory>());
+
+        public Task<int> GetMemoryCountByOwnerAsync(MemoryOwner owner, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<IReadOnlyList<Memory>> GetUnfiledMemoriesAsync(int page = 1, int pageSize = 50, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Memory>>(new List<Memory>());
+
+        public Task<int> GetUnfiledMemoryCountAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        // Archival operations
+        public Task<Memory?> UpdateMemoryArchetypeAsync(MemoryId memoryId, ArchetypeEnum newArchetype, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException("Test mock");
+
+        public Task<(IReadOnlyList<Memory> Memories, int TotalCount)> GetArchivedMemoriesAsync(int page = 1, int pageSize = 50, ProjectId? projectId = null, CancellationToken cancellationToken = default)
+            => Task.FromResult<(IReadOnlyList<Memory>, int)>((new List<Memory>(), 0));
+
+        // Search operations
+        public Task<IReadOnlyList<WorkspaceSearchResult>> SearchWorkspacesAsync(string query, bool includeSystem = false, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<WorkspaceSearchResult>>(new List<WorkspaceSearchResult>());
+
+        public Task<IReadOnlyList<WorkspacePathSegment>> GetWorkspacePathAsync(WorkspaceId id, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<WorkspacePathSegment>>(new List<WorkspacePathSegment>());
+
+        public Task<IReadOnlyList<ProjectSearchResult>> SearchProjectsAsync(string query, ProjectStatusEnum? statusFilter = null, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProjectSearchResult>>(new List<ProjectSearchResult>());
+
+        public Task<ProjectPath> GetProjectPathAsync(ProjectId id, CancellationToken cancellationToken = default)
+            => Task.FromResult(new ProjectPath { WorkspacePath = [], ProjectAncestors = [] });
+
+        public Task<(int ProjectsSeeded, int WorkspacesSeeded)> SeedProjectAndWorkspaceSystemMemoriesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult((0, 0));
+
+        // Data migration tracking
+        public Task<bool> HasDataMigrationRunAsync(string migrationName, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task RecordDataMigrationAsync(string migrationName, string? description = null, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<bool> ExecuteDataMigrationIfNeededAsync(string migrationName, string description, Func<CancellationToken, Task> migrationAction, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 
     /// <summary>
-    /// Minimal mock storage for testing
+    /// Minimal mock Memorizer Agent provider for testing
     /// </summary>
-    private class MockStorage : IStorage
+    private class MockMemorizerAgentProvider : IMemorizerAgentProvider
     {
-        public Task<Memory> StoreMemory(string type, string text, string source, string[]? tags = null, double confidence = 1, string? title = null, Guid? relatedToId = null, string? relationshipType = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
+        public string ProviderName => "mock";
+        public string DisplayName => "Mock Provider";
 
-        public Task<Memory?> Get(Guid id, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<List<Memory>> GetMany(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<bool> Delete(Guid id, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<List<Memory>> Search(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<(List<Memory> Memories, int TotalCount)> GetMemoriesPaginated(int page, int pageSize, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<Memory?> UpdateMemory(Guid id, string type, string text, string source, string[]? tags = null, double confidence = 1, string? title = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<MemoryRelationship> CreateRelationship(Guid fromId, Guid toId, string relationshipType, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<MemoryRelationship> CreateRelationship(Guid fromId, Guid toId, string relationshipType, double? score, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<List<MemoryRelationship>> GetRelationships(Guid memoryId, string? relationshipType = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<List<SimilarMemory>> GetSimilarMemories(Guid memoryId, double minSimilarity = 0.7, int limit = 10, CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<SimilarMemory>());
-
-        public Task<List<Memory>> GetMemoriesWithoutTitles(int limit, CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<Memory>());
-
-        public Task UpdateMemoryTitle(Guid memoryId, string title, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        Task<List<string>> IStorage.GetDistinctMemoryTypes(CancellationToken cancellationToken)
-            => Task.FromResult(new List<string> { "test", "mock" });
-
-        public Task<int> CountMemoriesWithoutMetadataEmbeddings(CancellationToken cancellationToken = default)
-            => Task.FromResult(0);
-
-        public Task<List<Memory>> GetMemoriesWithoutMetadataEmbeddings(int limit, bool includeExisting = false, CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<Memory>());
-
-        public Task UpdateMemoryMetadataEmbedding(Guid memoryId, Vector embedding, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task UpdateMemoryEmbeddings(Guid memoryId, Vector contentEmbedding, Vector metadataEmbedding, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task<List<Memory>> SearchWithFullEmbedding(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<List<Memory>> SearchWithMetadataEmbedding(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<(List<Memory> FullResults, List<Memory> MetadataResults)> CompareSearchMethods(string query, int limit = 10, double minSimilarity = 0.7, string[]? filterTags = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        // Versioning support
-        public Task<List<MemoryEvent>> GetEvents(Guid memoryId, int? limit = null, CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<MemoryEvent>());
-
-        public Task<List<MemoryVersion>> GetVersionHistory(Guid memoryId, int? limit = null, CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<MemoryVersion>());
-
-        public Task<MemoryVersion?> GetVersion(Guid memoryId, int versionNumber, CancellationToken cancellationToken = default)
-            => Task.FromResult<MemoryVersion?>(null);
-
-        public Task<Memory?> RevertToVersion(Guid memoryId, int versionNumber, string? changedBy = null, CancellationToken cancellationToken = default)
-            => throw new NotImplementedException("Test mock");
-
-        public Task<int> PurgeVersionsKeepingLatest(Guid memoryId, int versionsToKeep, CancellationToken cancellationToken = default)
-            => Task.FromResult(0);
-
-        public Task<int> PurgeVersionsOlderThan(DateTime cutoffDate, CancellationToken cancellationToken = default)
-            => Task.FromResult(0);
-
-        public Task<VersionStats> GetVersionStats(CancellationToken cancellationToken = default)
-            => Task.FromResult(new VersionStats());
-    }
-
-    /// <summary>
-    /// Minimal mock LLM service for testing
-    /// </summary>
-    private class MockLlmService : ILlmService
-    {
-        public Task<LlmHealthResult> CheckHealthAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new LlmHealthResult
+        public Task<MemorizerAgentHealthResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new MemorizerAgentHealthResult
             {
                 IsHealthy = true,
-                Message = "Mock LLM service is healthy",
+                Message = "Mock Memorizer Agent is healthy",
                 ModelName = "test-model"
             });
 
-        public Task<string> GenerateTitle(string content, string contentType, string[]? existingTags = null, int maxTitleLength = 100, CancellationToken cancellationToken = default)
+        public Task<string> GenerateTitleAsync(string content, string contentType, string[]? existingTags = null, int maxTitleLength = 100, CancellationToken cancellationToken = default)
             => Task.FromResult("Mock Generated Title");
 
         public void Dispose() { }

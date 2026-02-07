@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADRs)
 
-This directory contains Architecture Decision Records (ADRs) for the PostgMem project. ADRs are used to document important architectural decisions, their context, and consequences.
+This directory contains Architecture Decision Records (ADRs) for the Memorizer project. ADRs are used to document important architectural decisions, their context, and consequences.
 
 ## What is an ADR?
 

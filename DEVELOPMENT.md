@@ -38,7 +38,7 @@ The `docker-compose.dev.yml` file starts these services:
 **PostgreSQL:**
 - Host: `localhost`
 - Port: `5432`
-- Database: `postgmem`
+- Database: `memorizer`
 - Username: `postgres`
 - Password: `postgres`
 
@@ -54,7 +54,7 @@ The application is pre-configured via `appsettings.json`:
 ```json
 {
   "ConnectionStrings": {
-    "Storage": "Host=localhost;Port=5432;Database=postgmem;Username=postgres;Password=postgres"
+    "Storage": "Host=localhost;Port=5432;Database=memorizer;Username=postgres;Password=postgres"
   },
   "Embeddings": {
     "ApiUrl": "http://localhost:11434",
@@ -116,11 +116,11 @@ docker-compose -f docker-compose.dev.yml logs postgres
 docker-compose -f docker-compose.dev.yml logs ollama-init
 
 # Manually trigger model download
-docker exec -it postgmem-ollama-dev ollama pull all-minilm:33m-l12-v2-fp16
-docker exec -it postgmem-ollama-dev ollama pull qwen2:0.5b
+docker exec -it memorizer-ollama-dev ollama pull all-minilm:33m-l12-v2-fp16
+docker exec -it memorizer-ollama-dev ollama pull qwen2:0.5b
 
 # List loaded models
-docker exec -it postgmem-ollama-dev ollama list
+docker exec -it memorizer-ollama-dev ollama list
 ```
 
 **Port conflicts:**

@@ -1,5 +1,10 @@
 # Memorizer Project Guidelines
 
+## GitHub Workflow
+
+- **Always create pull requests against `petabridge/memorizer-v1`**, not any fork
+- Use `gh pr create --repo petabridge/memorizer-v1` when creating PRs
+
 ## NuGet Package Management
 
 This project uses Central Package Management (CPM) via `Directory.Packages.props`.
@@ -26,3 +31,46 @@ This project supports both light and dark themes. When making CSS or stylesheet 
   /* Dark mode */
   [data-theme="dark"] .my-class { background-color: #1e4620; color: #75d47b; }
   ```
+
+## Integration Test Patterns
+
+Integration tests use shared PostgreSQL containers via XUnit test collections. Each test class creates its own `ServiceProvider` with a connection pool. To prevent connection exhaustion:
+
+- **Test classes that create `ServiceProvider` must implement `IDisposable`** and dispose it
+- If `ServiceProvider` is created in the constructor, add a `Dispose()` method
+- If `ServiceProvider` is created per-test, use `using var services = CreateServices();`
+
+Example patterns:
+
+```csharp
+// Pattern 1: ServiceProvider created in constructor
+[Collection(nameof(IntegrationTestCollection))]
+public class MyTests : IDisposable
+{
+    private readonly IServiceProvider _services;
+
+    public MyTests(IntegrationTestFixture fixture)
+    {
+        _services = CreateServices(fixture);
+    }
+
+    public void Dispose()
+    {
+        (_services as IDisposable)?.Dispose();
+    }
+}
+
+// Pattern 2: ServiceProvider created per-test (for different configurations)
+[Collection(nameof(IntegrationTestCollection))]
+public class MyTests
+{
+    private ServiceProvider CreateServices(string model) { /* ... */ }
+
+    [Fact]
+    public async Task MyTest()
+    {
+        using var services = CreateServices("model-a");
+        // test code...
+    }
+}
+```

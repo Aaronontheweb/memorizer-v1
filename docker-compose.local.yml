@@ -2,11 +2,11 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
-    container_name: postgmem-postgres
+    container_name: memorizer-postgres
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=postgmem
+      - POSTGRES_DB=memorizer
     ports:
       - "5432:5432"
     volumes:
@@ -20,7 +20,7 @@ services:
   pgadmin:
     image: dpage/pgadmin4
     restart: unless-stopped
-    container_name: postgmem-pgadmin
+    container_name: memorizer-pgadmin
     environment:
       - PGADMIN_DEFAULT_EMAIL=admin@example.com
       - PGADMIN_DEFAULT_PASSWORD=admin
@@ -32,7 +32,7 @@ services:
   ollama:
     image: ollama/ollama
     restart: unless-stopped
-    container_name: postgmem-ollama
+    container_name: memorizer-ollama
     ports:
       - "11434:11434"
     volumes:
@@ -41,7 +41,7 @@ services:
   # Initialize Ollama with the required models
   ollama-init:
     image: curlimages/curl:latest
-    container_name: postgmem-ollama-init
+    container_name: memorizer-ollama-init
     entrypoint: ["/bin/sh", "-c"]
     depends_on:
       - ollama
@@ -82,7 +82,7 @@ services:
     restart: unless-stopped
     container_name: memorizer-dev
     environment:
-      - ConnectionStrings__Storage=Host=postgres;Port=5432;Database=postgmem;Username=postgres;Password=postgres
+      - ConnectionStrings__Storage=Host=postgres;Port=5432;Database=memorizer;Username=postgres;Password=postgres
       - MEMORIZER_Embeddings__ApiUrl=http://ollama:11434
       - MEMORIZER_Embeddings__Model=all-minilm:33m-l12-v2-fp16
       - MEMORIZER_LLM__ApiUrl=http://ollama:11434

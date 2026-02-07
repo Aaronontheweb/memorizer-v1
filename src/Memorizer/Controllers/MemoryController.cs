@@ -1,4 +1,7 @@
+using System.Text.Json;
 using Memorizer.Models;
+using Memorizer.Models.Enums;
+using Memorizer.Models.ValueTypes;
 using Memorizer.Services;
 using Memorizer.Settings;
 using Microsoft.AspNetCore.Mvc;
@@ -22,19 +25,48 @@ public class MemoryController : ControllerBase
     }
 
     /// <summary>
-    /// Get paginated list of memories
+    /// Get paginated list of memories, optionally filtered by workspace, project, or unfiled status
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<MemoryListResponse>> GetMemories(int page = 1, int pageSize = 20)
+    public async Task<ActionResult<MemoryListResponse>> GetMemories(
+        int page = 1,
+        int pageSize = 20,
+        [FromQuery] Guid? workspaceId = null,
+        [FromQuery] Guid? projectId = null,
+        [FromQuery] bool unfiled = false)
     {
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
-        var (memories, totalCount) = await _storage.GetMemoriesPaginated(page, pageSize);
-        
+        List<Memory> memories;
+        int totalCount;
+
+        // Priority: projectId > workspaceId > unfiled > all
+        if (projectId.HasValue)
+        {
+            var owner = MemoryOwner.ForProject(new ProjectId(projectId.Value));
+            memories = (await _storage.GetMemoriesByOwnerAsync(owner, page, pageSize)).ToList();
+            totalCount = await _storage.GetMemoryCountByOwnerAsync(owner);
+        }
+        else if (workspaceId.HasValue)
+        {
+            var owner = MemoryOwner.ForWorkspace(new WorkspaceId(workspaceId.Value));
+            memories = (await _storage.GetMemoriesByOwnerAsync(owner, page, pageSize)).ToList();
+            totalCount = await _storage.GetMemoryCountByOwnerAsync(owner);
+        }
+        else if (unfiled)
+        {
+            memories = (await _storage.GetUnfiledMemoriesAsync(page, pageSize)).ToList();
+            totalCount = await _storage.GetUnfiledMemoryCountAsync();
+        }
+        else
+        {
+            (memories, totalCount) = await _storage.GetMemoriesPaginated(page, pageSize);
+        }
+
         return Ok(new MemoryListResponse
         {
-            Memories = memories,
+            Memories = memories.Select(MemoryListItem.FromMemory).ToList(),
             TotalCount = totalCount,
             Page = page,
             PageSize = pageSize,
@@ -48,7 +80,7 @@ public class MemoryController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<Memory>> GetMemory(Guid id)
     {
-        var memory = await _storage.Get(id);
+        var memory = await _storage.Get((MemoryId)id);
         if (memory == null)
         {
             return NotFound();
@@ -77,16 +109,28 @@ public class MemoryController : ControllerBase
             return BadRequest(ModelState);
         }
 
+        // Determine owner: project takes precedence over workspace
+        MemoryOwner? owner = null;
+        if (request.ProjectId.HasValue)
+        {
+            owner = MemoryOwner.ForProject(new ProjectId(request.ProjectId.Value));
+        }
+        else if (request.WorkspaceId.HasValue)
+        {
+            owner = MemoryOwner.ForWorkspace(new WorkspaceId(request.WorkspaceId.Value));
+        }
+
         var memory = await _storage.StoreMemory(
             request.Type,
             request.Content,
             request.Source,
             request.Tags,
-            request.Confidence,
-            title: request.Title
+            new Confidence(request.Confidence),
+            title: request.Title,
+            owner: owner
         );
 
-        return CreatedAtAction(nameof(GetMemory), new { id = memory.Id }, memory);
+        return CreatedAtAction(nameof(GetMemory), new { id = memory.Id.Value }, memory);
     }
 
     /// <summary>
@@ -101,12 +145,12 @@ public class MemoryController : ControllerBase
         }
 
         var memory = await _storage.UpdateMemory(
-            id,
+            (MemoryId)id,
             request.Type,
             request.Content,
             request.Source,
             request.Tags,
-            request.Confidence,
+            new Confidence(request.Confidence),
             request.Title
         );
 
@@ -124,7 +168,7 @@ public class MemoryController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<ActionResult> DeleteMemory(Guid id)
     {
-        var success = await _storage.Delete(id);
+        var success = await _storage.Delete((MemoryId)id);
         if (!success)
         {
             return NotFound();
@@ -133,18 +177,141 @@ public class MemoryController : ControllerBase
     }
 
     /// <summary>
-    /// Get version history for a memory
+    /// Update the owner (workspace/project) of a memory
     /// </summary>
-    [HttpGet("{id}/versions")]
-    public async Task<ActionResult<List<MemoryVersion>>> GetVersionHistory(Guid id, int? limit = null)
+    [HttpPatch("{id}/owner")]
+    public async Task<ActionResult<Memory>> UpdateMemoryOwner(Guid id, [FromBody] UpdateOwnerRequest request)
     {
-        var memory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
         if (memory == null)
         {
             return NotFound();
         }
 
-        var versions = await _storage.GetVersionHistory(id, limit);
+        // Determine new owner: project takes precedence over workspace
+        MemoryOwner owner;
+        if (request.ProjectId.HasValue)
+        {
+            owner = MemoryOwner.ForProject(new ProjectId(request.ProjectId.Value));
+        }
+        else if (request.WorkspaceId.HasValue)
+        {
+            owner = MemoryOwner.ForWorkspace(new WorkspaceId(request.WorkspaceId.Value));
+        }
+        else
+        {
+            // Neither provided - set to unfiled
+            owner = MemoryOwner.Unfiled;
+        }
+
+        await _storage.UpdateMemoryOwner(memoryId, owner);
+
+        // Fetch and return updated memory
+        var updatedMemory = await _storage.Get(memoryId);
+        return Ok(updatedMemory);
+    }
+
+    /// <summary>
+    /// Archive a memory (mark as obsolete)
+    /// </summary>
+    [HttpPatch("{id}/archive")]
+    public async Task<ActionResult<Memory>> ArchiveMemory(Guid id)
+    {
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
+        if (memory == null)
+        {
+            return NotFound();
+        }
+
+        if (memory.Archetype == ArchetypeEnum.Archived)
+        {
+            return BadRequest("Memory is already archived");
+        }
+
+        var archivedMemory = await _storage.UpdateMemoryArchetypeAsync(memoryId, ArchetypeEnum.Archived);
+        if (archivedMemory == null)
+        {
+            return StatusCode(500, "Failed to archive memory");
+        }
+
+        return Ok(archivedMemory);
+    }
+
+    /// <summary>
+    /// Restore an archived memory to active status
+    /// </summary>
+    [HttpPatch("{id}/restore")]
+    public async Task<ActionResult<Memory>> RestoreMemory(Guid id, [FromBody] RestoreMemoryRequest request)
+    {
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
+        if (memory == null)
+        {
+            return NotFound();
+        }
+
+        if (memory.Archetype != ArchetypeEnum.Archived)
+        {
+            return BadRequest("Memory is not archived");
+        }
+
+        var targetArchetype = ArchetypeEnumExtensions.ParseArchetype(request.RestoreAs ?? "document");
+        if (targetArchetype == ArchetypeEnum.Archived)
+        {
+            return BadRequest("Cannot restore to archived status");
+        }
+
+        var restoredMemory = await _storage.UpdateMemoryArchetypeAsync(memoryId, targetArchetype);
+        if (restoredMemory == null)
+        {
+            return StatusCode(500, "Failed to restore memory");
+        }
+
+        return Ok(restoredMemory);
+    }
+
+    /// <summary>
+    /// Get paginated list of archived memories
+    /// </summary>
+    [HttpGet("archived")]
+    public async Task<ActionResult<ArchivedMemoryListResponse>> GetArchivedMemories(
+        int page = 1,
+        int pageSize = 20,
+        [FromQuery] Guid? projectId = null,
+        [FromQuery] Guid? workspaceId = null)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        ProjectId? typedProjectId = projectId.HasValue ? new ProjectId(projectId.Value) : null;
+        var (memories, totalCount) = await _storage.GetArchivedMemoriesAsync(page, pageSize, typedProjectId);
+
+        return Ok(new ArchivedMemoryListResponse
+        {
+            Memories = memories.Select(MemoryListItem.FromMemory).ToList(),
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize,
+            TotalPages = (int)Math.Ceiling((double)totalCount / pageSize)
+        });
+    }
+
+    /// <summary>
+    /// Get version history for a memory
+    /// </summary>
+    [HttpGet("{id}/versions")]
+    public async Task<ActionResult<List<MemoryVersion>>> GetVersionHistory(Guid id, int? limit = null)
+    {
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
+        if (memory == null)
+        {
+            return NotFound();
+        }
+
+        var versions = await _storage.GetVersionHistory(memoryId, limit);
         return Ok(versions);
     }
 
@@ -154,20 +321,22 @@ public class MemoryController : ControllerBase
     [HttpGet("{id}/versions/{versionNumber}")]
     public async Task<ActionResult<MemoryVersion>> GetVersion(Guid id, int versionNumber)
     {
-        var memory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var versionNum = new VersionNumber(versionNumber);
+        var memory = await _storage.Get(memoryId);
         if (memory == null)
         {
             return NotFound();
         }
 
-        var version = await _storage.GetVersion(id, versionNumber);
+        var version = await _storage.GetVersion(memoryId, versionNum);
 
         // If version is the current version and not stored, return live memory data
-        if (version == null && versionNumber == memory.CurrentVersion)
+        if (version == null && versionNum == memory.CurrentVersion)
         {
             version = new MemoryVersion
             {
-                VersionId = Guid.Empty,
+                VersionId = (VersionId)Guid.Empty,
                 MemoryId = memory.Id,
                 VersionNumber = memory.CurrentVersion,
                 Type = memory.Type,
@@ -195,13 +364,14 @@ public class MemoryController : ControllerBase
     [HttpGet("{id}/events")]
     public async Task<ActionResult<List<MemoryEvent>>> GetEvents(Guid id, int? limit = null)
     {
-        var memory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
         if (memory == null)
         {
             return NotFound();
         }
 
-        var events = await _storage.GetEvents(id, limit);
+        var events = await _storage.GetEvents(memoryId, limit);
         return Ok(events);
     }
 
@@ -211,13 +381,14 @@ public class MemoryController : ControllerBase
     [HttpPost("{id}/versions/{versionNumber}/revert")]
     public async Task<ActionResult<Memory>> RevertToVersion(Guid id, int versionNumber, [FromQuery] string? changedBy = null)
     {
-        var memory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
         if (memory == null)
         {
             return NotFound();
         }
 
-        var revertedMemory = await _storage.RevertToVersion(id, versionNumber, changedBy);
+        var revertedMemory = await _storage.RevertToVersion(memoryId, new VersionNumber(versionNumber), changedBy);
         if (revertedMemory == null)
         {
             return NotFound($"Version {versionNumber} not found or could not be reverted");
@@ -236,14 +407,18 @@ public class MemoryController : ControllerBase
         [FromQuery] int toVersion,
         [FromServices] IDiffService diffService)
     {
-        var memory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var fromVersionNum = new VersionNumber(fromVersion);
+        var toVersionNum = new VersionNumber(toVersion);
+
+        var memory = await _storage.Get(memoryId);
         if (memory == null)
         {
             return NotFound();
         }
 
-        var fromVersionObj = await _storage.GetVersion(id, fromVersion);
-        var toVersionObj = await _storage.GetVersion(id, toVersion);
+        var fromVersionObj = await _storage.GetVersion(memoryId, fromVersionNum);
+        var toVersionObj = await _storage.GetVersion(memoryId, toVersionNum);
 
         if (fromVersionObj == null)
         {
@@ -251,11 +426,11 @@ public class MemoryController : ControllerBase
         }
 
         // If toVersion is the current version and not stored, use live memory data
-        if (toVersionObj == null && toVersion == memory.CurrentVersion)
+        if (toVersionObj == null && toVersionNum == memory.CurrentVersion)
         {
             toVersionObj = new MemoryVersion
             {
-                VersionId = Guid.Empty,
+                VersionId = (VersionId)Guid.Empty,
                 MemoryId = memory.Id,
                 VersionNumber = memory.CurrentVersion,
                 Type = memory.Type,
@@ -288,7 +463,7 @@ public class MemoryController : ControllerBase
             TagsChanged = !TagsAreEqual(fromVersionObj.Tags, toVersionObj.Tags),
             TitleChanged = fromVersionObj.Title != toVersionObj.Title,
             TypeChanged = fromVersionObj.Type != toVersionObj.Type,
-            ConfidenceChanged = Math.Abs(fromVersionObj.Confidence - toVersionObj.Confidence) > 0.001
+            ConfidenceChanged = Math.Abs((double)fromVersionObj.Confidence - (double)toVersionObj.Confidence) > 0.001
         });
     }
 
@@ -303,7 +478,7 @@ public class MemoryController : ControllerBase
     /// Vector search for memories using metadata embeddings (optimized for keyword queries)
     /// </summary>
     [HttpGet("search")]
-    public async Task<ActionResult<List<Memory>>> SearchMemories(
+    public async Task<ActionResult<List<MemoryListItem>>> SearchMemories(
         [FromQuery] string query,
         [FromQuery] double minSimilarity = 0.7,
         [FromQuery] int limit = 10,
@@ -312,15 +487,15 @@ public class MemoryController : ControllerBase
         if (string.IsNullOrWhiteSpace(query))
             return BadRequest("Query is required.");
         // Use metadata embeddings by default for better keyword query performance
-        var results = await _storage.SearchWithMetadataEmbedding(query, limit, minSimilarity, filterTags);
-        return Ok(results);
+        var results = await _storage.SearchWithMetadataEmbedding(query, limit, new SimilarityScore(minSimilarity), filterTags);
+        return Ok(results.Select(MemoryListItem.FromMemory).ToList());
     }
 
     /// <summary>
     /// Search using full content embeddings (current approach)
     /// </summary>
     [HttpGet("search/full")]
-    public async Task<ActionResult<List<Memory>>> SearchWithFullEmbedding(
+    public async Task<ActionResult<List<MemoryListItem>>> SearchWithFullEmbedding(
         [FromQuery] string query,
         [FromQuery] double minSimilarity = 0.7,
         [FromQuery] int limit = 10,
@@ -328,15 +503,15 @@ public class MemoryController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(query))
             return BadRequest("Query is required.");
-        var results = await _storage.SearchWithFullEmbedding(query, limit, minSimilarity, filterTags);
-        return Ok(results);
+        var results = await _storage.SearchWithFullEmbedding(query, limit, new SimilarityScore(minSimilarity), filterTags);
+        return Ok(results.Select(MemoryListItem.FromMemory).ToList());
     }
 
     /// <summary>
     /// Search using metadata-only embeddings (PoC approach)
     /// </summary>
     [HttpGet("search/metadata")]
-    public async Task<ActionResult<List<Memory>>> SearchWithMetadataEmbedding(
+    public async Task<ActionResult<List<MemoryListItem>>> SearchWithMetadataEmbedding(
         [FromQuery] string query,
         [FromQuery] double minSimilarity = 0.7,
         [FromQuery] int limit = 10,
@@ -344,8 +519,8 @@ public class MemoryController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(query))
             return BadRequest("Query is required.");
-        var results = await _storage.SearchWithMetadataEmbedding(query, limit, minSimilarity, filterTags);
-        return Ok(results);
+        var results = await _storage.SearchWithMetadataEmbedding(query, limit, new SimilarityScore(minSimilarity), filterTags);
+        return Ok(results.Select(MemoryListItem.FromMemory).ToList());
     }
 
     /// <summary>
@@ -360,22 +535,25 @@ public class MemoryController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(query))
             return BadRequest("Query is required.");
-        
-        var (fullResults, metadataResults) = await _storage.CompareSearchMethods(query, limit, minSimilarity, filterTags);
-        
+
+        var (fullResults, metadataResults) = await _storage.CompareSearchMethods(query, limit, new SimilarityScore(minSimilarity), filterTags);
+
+        var fullResultItems = fullResults.Select(MemoryListItem.FromMemory).ToList();
+        var metadataResultItems = metadataResults.Select(MemoryListItem.FromMemory).ToList();
+
         return Ok(new SearchComparisonResponse
         {
             Query = query,
             MinSimilarity = minSimilarity,
             Limit = limit,
-            FullEmbeddingResults = fullResults,
-            MetadataEmbeddingResults = metadataResults,
+            FullEmbeddingResults = fullResultItems,
+            MetadataEmbeddingResults = metadataResultItems,
             Summary = new ComparisonSummary
             {
                 FullEmbeddingCount = fullResults.Count,
                 MetadataEmbeddingCount = metadataResults.Count,
-                FullEmbeddingBestScore = fullResults.FirstOrDefault()?.Similarity,
-                MetadataEmbeddingBestScore = metadataResults.FirstOrDefault()?.Similarity,
+                FullEmbeddingBestScore = fullResults.FirstOrDefault()?.Similarity.HasValue == true ? (double?)fullResults.First().Similarity!.Value : null,
+                MetadataEmbeddingBestScore = metadataResults.FirstOrDefault()?.Similarity.HasValue == true ? (double?)metadataResults.First().Similarity!.Value : null,
                 UniqueToFull = fullResults.Count(f => metadataResults.All(m => m.Id != f.Id)),
                 UniqueToMetadata = metadataResults.Count(m => fullResults.All(f => f.Id != m.Id))
             }
@@ -390,7 +568,8 @@ public class MemoryController : ControllerBase
     [HttpPost("{id}/versions/purge")]
     public async Task<ActionResult<PurgeResult>> PurgeVersionsForMemory(Guid id, [FromBody] PurgeVersionsRequest request)
     {
-        var memory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
         if (memory == null)
         {
             return NotFound();
@@ -401,7 +580,7 @@ public class MemoryController : ControllerBase
             return BadRequest("Must keep at least 1 version");
         }
 
-        var purged = await _storage.PurgeVersionsKeepingLatest(id, request.VersionsToKeep);
+        var purged = await _storage.PurgeVersionsKeepingLatest(memoryId, request.VersionsToKeep);
         return Ok(new PurgeResult
         {
             VersionsPurged = purged,
@@ -435,7 +614,8 @@ public class MemoryController : ControllerBase
         [FromQuery] double? threshold = null,
         [FromQuery] int? limit = null)
     {
-        var memory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var memory = await _storage.Get(memoryId);
         if (memory == null)
         {
             return NotFound();
@@ -448,7 +628,7 @@ public class MemoryController : ControllerBase
         // Clamp threshold to configured bounds
         effectiveThreshold = Math.Clamp(effectiveThreshold, _similaritySettings.MinThreshold, _similaritySettings.MaxThreshold);
 
-        var similarMemories = await _storage.GetSimilarMemories(id, effectiveThreshold, effectiveLimit);
+        var similarMemories = await _storage.GetSimilarMemories(memoryId, new SimilarityScore(effectiveThreshold), effectiveLimit);
 
         return Ok(new SimilarMemoriesResponse
         {
@@ -467,7 +647,8 @@ public class MemoryController : ControllerBase
         Guid id,
         [FromBody] CreateSimilarRelationshipsRequest request)
     {
-        var sourceMemory = await _storage.Get(id);
+        var memoryId = (MemoryId)id;
+        var sourceMemory = await _storage.Get(memoryId);
         if (sourceMemory == null)
         {
             return NotFound();
@@ -484,20 +665,23 @@ public class MemoryController : ControllerBase
         foreach (var rel in request.Relationships)
         {
             // Validate the target memory exists
-            var targetMemory = await _storage.Get(rel.TargetMemoryId);
+            var targetMemoryId = (MemoryId)rel.TargetMemoryId;
+            var targetMemory = await _storage.Get(targetMemoryId);
             if (targetMemory == null)
             {
                 errors.Add($"Target memory {rel.TargetMemoryId} not found");
                 continue;
             }
 
+            var score = new SimilarityScore(rel.Score);
+
             // Create bidirectional relationships
             // Source -> Target
-            var forwardRel = await _storage.CreateRelationship(id, rel.TargetMemoryId, "similar-to", rel.Score);
+            var forwardRel = await _storage.CreateRelationship(memoryId, targetMemoryId, "similar-to", score);
             createdRelationships.Add(forwardRel);
 
             // Target -> Source (same score, bidirectional)
-            var backwardRel = await _storage.CreateRelationship(rel.TargetMemoryId, id, "similar-to", rel.Score);
+            var backwardRel = await _storage.CreateRelationship(targetMemoryId, memoryId, "similar-to", score);
             createdRelationships.Add(backwardRel);
         }
 
@@ -511,9 +695,58 @@ public class MemoryController : ControllerBase
     }
 }
 
+/// <summary>
+/// Lightweight memory representation for list views - excludes embedding vectors
+/// </summary>
+public class MemoryListItem
+{
+    public Guid Id { get; set; }
+    public string? TypeLegacy { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public JsonDocument Content { get; set; } = JsonDocument.Parse("{}");
+    public string Source { get; set; } = string.Empty;
+    // Embedding and EmbeddingMetadata intentionally excluded to reduce payload size
+    public string[]? Tags { get; set; }
+    public double Confidence { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string? Title { get; set; }
+    public string Text { get; set; } = string.Empty;
+    public int CurrentVersion { get; set; }
+    public double? Similarity { get; set; }
+    public List<MemoryRelationship>? Relationships { get; set; }
+    public MemoryOwner Owner { get; set; } = MemoryOwner.Unfiled;
+    public string MemoryType { get; set; } = string.Empty;
+    public string Archetype { get; set; } = string.Empty;
+
+    public static MemoryListItem FromMemory(Memory memory)
+    {
+        return new MemoryListItem
+        {
+            Id = memory.Id.Value,
+            TypeLegacy = memory.TypeLegacy,
+            Type = memory.Type,
+            Content = memory.Content,
+            Source = memory.Source,
+            Tags = memory.Tags,
+            Confidence = memory.Confidence.Value,
+            CreatedAt = memory.CreatedAt,
+            UpdatedAt = memory.UpdatedAt,
+            Title = memory.Title,
+            Text = memory.Text,
+            CurrentVersion = memory.CurrentVersion.Value,
+            Similarity = memory.Similarity?.Value,
+            Relationships = memory.Relationships,
+            Owner = memory.Owner,
+            MemoryType = memory.MemoryType.ToString().ToLowerInvariant(),
+            Archetype = memory.Archetype.ToString().ToLowerInvariant()
+        };
+    }
+}
+
 public class MemoryListResponse
 {
-    public List<Memory> Memories { get; set; } = [];
+    public List<MemoryListItem> Memories { get; set; } = [];
     public int TotalCount { get; set; }
     public int Page { get; set; }
     public int PageSize { get; set; }
@@ -528,6 +761,14 @@ public class CreateMemoryRequest
     public string[]? Tags { get; set; }
     public double Confidence { get; set; } = 1.0;
     public string Title { get; set; } = string.Empty;
+    /// <summary>
+    /// Optional workspace ID to assign the memory to
+    /// </summary>
+    public Guid? WorkspaceId { get; set; }
+    /// <summary>
+    /// Optional project ID to assign the memory to (takes precedence over WorkspaceId)
+    /// </summary>
+    public Guid? ProjectId { get; set; }
 }
 
 public class UpdateMemoryRequest
@@ -540,13 +781,25 @@ public class UpdateMemoryRequest
     public string Title { get; set; } = string.Empty;
 }
 
+public class UpdateOwnerRequest
+{
+    /// <summary>
+    /// Workspace ID to assign the memory to (ignored if ProjectId is set)
+    /// </summary>
+    public Guid? WorkspaceId { get; set; }
+    /// <summary>
+    /// Project ID to assign the memory to (takes precedence over WorkspaceId)
+    /// </summary>
+    public Guid? ProjectId { get; set; }
+}
+
 public class SearchComparisonResponse
 {
     public string Query { get; set; } = string.Empty;
     public double MinSimilarity { get; set; }
     public int Limit { get; set; }
-    public List<Memory> FullEmbeddingResults { get; set; } = [];
-    public List<Memory> MetadataEmbeddingResults { get; set; } = [];
+    public List<MemoryListItem> FullEmbeddingResults { get; set; } = [];
+    public List<MemoryListItem> MetadataEmbeddingResults { get; set; } = [];
     public ComparisonSummary Summary { get; set; } = new();
 }
 
@@ -634,4 +887,23 @@ public class CreateSimilarRelationshipsResponse
     public int RelationshipsCreated { get; set; }
     public List<MemoryRelationship> Relationships { get; set; } = [];
     public List<string> Errors { get; set; } = [];
+}
+
+// ==================== Archival DTOs ====================
+
+public class RestoreMemoryRequest
+{
+    /// <summary>
+    /// Archetype to restore to: "document" (default) or "record"
+    /// </summary>
+    public string? RestoreAs { get; set; } = "document";
+}
+
+public class ArchivedMemoryListResponse
+{
+    public List<MemoryListItem> Memories { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages { get; set; }
 } 

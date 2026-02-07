@@ -40,6 +40,36 @@
     box-shadow: 0 0 0 0.25rem rgba(99, 102, 241, 0.25);
 }
 
+/* Sidebar Search Input */
+.sidebar-search-input {
+    background-color: var(--surface-overlay);
+    border: 1px solid var(--sidebar-divider);
+    color: var(--text-on-brand);
+}
+
+.sidebar-search-input::placeholder {
+    color: var(--text-on-brand-muted);
+}
+
+.sidebar-search-input:focus {
+    background-color: var(--surface-overlay);
+    border-color: var(--text-on-brand);
+    color: var(--text-on-brand);
+    box-shadow: 0 0 0 0.25rem rgba(255, 255, 255, 0.15);
+}
+
+.sidebar-search-btn {
+    background-color: var(--surface-overlay);
+    border: 1px solid var(--sidebar-divider);
+    color: var(--text-on-brand);
+}
+
+.sidebar-search-btn:hover {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-color: var(--text-on-brand);
+    color: var(--text-on-brand);
+}
+
 /* Content Area */
 .content-wrapper {
     background-color: var(--surface-page);
@@ -271,14 +301,19 @@ footer a:hover {
 [data-theme="dark"] .btn-warning {
     background-color: #ffc107;
     border-color: #ffc107;
-    color: #000;
+    color: #000 !important;
 }
 
 [data-theme="dark"] .btn-warning:hover,
 [data-theme="dark"] .btn-warning:focus {
     background-color: #ffca2c;
     border-color: #ffc720;
-    color: #000;
+    color: #000 !important;
+}
+
+/* Ensure buttons inside alerts don't inherit alert text color */
+[data-theme="dark"] .alert .btn-warning {
+    color: #000 !important;
 }
 
 /* Spinner styling */
@@ -419,4 +454,127 @@ footer a:hover {
 
 .form-range::-moz-range-thumb {
     background-color: var(--brand-primary);
+}
+
+/* Provider settings info card - dark mode */
+[data-theme="dark"] .card.border-info {
+    border-color: #3d8bbd !important;
+}
+
+[data-theme="dark"] .card.border-info .card-header.bg-info {
+    background-color: #1a4a6e !important;
+    border-bottom-color: #3d8bbd !important;
+}
+
+[data-theme="dark"] .card.border-info .card-body {
+    background-color: var(--surface-card);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .card.border-info .card-body strong {
+    color: #7ec8e3;
+}
+
+/* Form help text styling for dark mode */
+[data-theme="dark"] .form-text {
+    color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .form-text .text-muted {
+    color: var(--text-muted) !important;
+}
+
+/* =================================================================
+   ARCHIVED MEMORY STYLES
+   ================================================================= */
+
+/* Archived memory card styling - muted appearance */
+.memory-card.archived {
+    opacity: 0.7;
+    border-color: var(--border-default);
+}
+
+.memory-card.archived:hover {
+    opacity: 0.85;
+}
+
+/* Archived badge styling */
+.badge-archived {
+    background-color: #6c757d;
+    color: #fff;
+}
+
+[data-theme="dark"] .badge-archived {
+    background-color: #495057;
+    color: #e9ecef;
+}
+
+/* Archived banner styling */
+.archived-banner {
+    background-color: #fff3cd;
+    border-color: #ffc107;
+}
+
+[data-theme="dark"] .archived-banner {
+    background-color: rgba(255, 193, 7, 0.15);
+    border-color: rgba(255, 193, 7, 0.4);
+    color: #ffc107;
+}
+
+[data-theme="dark"] .archived-banner strong {
+    color: #ffda6a;
+}
+
+/* Archived relationship indicator */
+.relationship-archived {
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.relationship-archived .card {
+    border-style: dashed;
+}
+
+/* Related memory card that points to archived memory */
+.related-memory-archived {
+    opacity: 0.65;
+    background-color: rgba(108, 117, 125, 0.1);
+}
+
+[data-theme="dark"] .related-memory-archived {
+    background-color: rgba(108, 117, 125, 0.2);
+}
+
+.related-memory-archived .card {
+    border-style: dashed;
+    border-color: var(--text-muted);
+}
+
+/* Muted styling for archived memory titles */
+.memory-title-archived {
+    color: var(--text-muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+}
+
+[data-theme="dark"] .memory-title-archived {
+    color: var(--text-secondary);
+}
+
+/* Toggle label styling */
+.archived-toggle-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* Archived indicator badge in list views */
+.badge-archived-indicator {
+    background-color: #6c757d;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+[data-theme="dark"] .badge-archived-indicator {
+    background-color: #495057;
+    color: #adb5bd;
 }

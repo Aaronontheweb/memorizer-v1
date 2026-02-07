@@ -1,4 +1,7 @@
 using Memorizer.Extensions;
+using Memorizer.Models;
+using Memorizer.Models.Enums;
+using Memorizer.Models.ValueTypes;
 using Memorizer.Services;
 using Memorizer.Settings;
 using Microsoft.Extensions.Configuration;
@@ -8,11 +11,16 @@ using Xunit.Abstractions;
 namespace Memorizer.IntegrationTests;
 
 [Collection(nameof(IntegrationTestCollection))]
-public class MetadataEmbeddingStorageTests 
+public class MetadataEmbeddingStorageTests : IDisposable
 {
     private readonly IntegrationTestFixture _fixture;
     private readonly ITestOutputHelper _output;
     private readonly IServiceProvider _services;
+
+    public void Dispose()
+    {
+        (_services as IDisposable)?.Dispose();
+    }
 
     public MetadataEmbeddingStorageTests(IntegrationTestFixture fixture, ITestOutputHelper output)
     {
@@ -76,7 +84,7 @@ public class MetadataEmbeddingStorageTests
             "Test content for metadata search functionality verification",
             "test",
             uniqueTags,
-            1.0,
+            new Confidence(1.0),
             uniqueTitle);
 
         _output.WriteLine($"Stored memory with ID: {testMemory.Id}, Title: '{uniqueTitle}'");
@@ -91,9 +99,9 @@ public class MetadataEmbeddingStorageTests
         // Test that SearchWithMetadataEmbedding method works functionally
         // Use a generic search term that should return some results from the database
         var results = await storage.SearchWithMetadataEmbedding(
-            "test", 
-            limit: 10, 
-            minSimilarity: 0.1);
+            "test",
+            limit: 10,
+            new SimilarityScore(0.1));
 
         _output.WriteLine($"Search for 'test' returned {results.Count} results");
 
@@ -113,9 +121,9 @@ public class MetadataEmbeddingStorageTests
 
         // Test with a more specific search that's likely to return fewer results
         var specificResults = await storage.SearchWithMetadataEmbedding(
-            uniqueTitle, 
-            limit: 5, 
-            minSimilarity: 0.1);
+            uniqueTitle,
+            limit: 5,
+            new SimilarityScore(0.1));
 
         _output.WriteLine($"Search for unique title returned {specificResults.Count} results");
         Assert.NotNull(specificResults);
@@ -142,5 +150,63 @@ public class MetadataEmbeddingStorageTests
 
         // Assert - method works without throwing (specific results depend on DB state)
         Assert.NotNull(memories);
+    }
+
+    [Fact]
+    public async Task UpdateMemoryOwner_CanMoveMemoryBetweenWorkspacesAndUnfiled()
+    {
+        // Arrange
+        var storage = _services.GetRequiredService<IStorage>();
+
+        var uniqueId = Guid.NewGuid().ToString("N")[..8];
+        var uniqueTitle = $"OwnerUpdateTest-{uniqueId}";
+
+        // Create a test memory (starts as Unfiled by default)
+        var testMemory = await storage.StoreMemory(
+            "test",
+            "Test content for owner update functionality verification",
+            "test",
+            new[] { $"test-{uniqueId}", "owner-test" },
+            new Confidence(1.0),
+            uniqueTitle);
+
+        _output.WriteLine($"Created memory with ID: {testMemory.Id}, Title: '{uniqueTitle}'");
+
+        // Verify the memory starts as Unfiled
+        var initialMemory = await storage.Get(testMemory.Id);
+        Assert.NotNull(initialMemory);
+        Assert.True(initialMemory.Owner.IsUnfiled, "Memory should start as Unfiled");
+        _output.WriteLine($"✅ Memory starts as Unfiled: Owner={initialMemory.Owner}");
+
+        // Create a test workspace to move the memory into
+        var workspaceName = $"TestWorkspace-{uniqueId}";
+        var workspace = await storage.CreateWorkspaceAsync(
+            workspaceName,
+            "Test workspace for owner update test");
+
+        _output.WriteLine($"Created workspace: ID={workspace.Id}, Name='{workspace.Name}'");
+
+        // Act 1: Move memory to workspace
+        var workspaceOwner = MemoryOwner.ForWorkspace(workspace.Id);
+        await storage.UpdateMemoryOwner(testMemory.Id, workspaceOwner);
+
+        // Assert 1: Verify the memory is now owned by the workspace
+        var movedMemory = await storage.Get(testMemory.Id);
+        Assert.NotNull(movedMemory);
+        Assert.Equal(OwnerTypeEnum.Workspace, movedMemory.Owner.Type);
+        Assert.Equal(workspace.Id.Value, movedMemory.Owner.Id);
+        Assert.False(movedMemory.Owner.IsUnfiled, "Memory should no longer be Unfiled");
+        _output.WriteLine($"✅ Memory moved to workspace: Owner={movedMemory.Owner}");
+
+        // Act 2: Move memory back to Unfiled
+        await storage.UpdateMemoryOwner(testMemory.Id, MemoryOwner.Unfiled);
+
+        // Assert 2: Verify the memory is back to Unfiled
+        var unfiledMemory = await storage.Get(testMemory.Id);
+        Assert.NotNull(unfiledMemory);
+        Assert.True(unfiledMemory.Owner.IsUnfiled, "Memory should be back to Unfiled");
+        _output.WriteLine($"✅ Memory moved back to Unfiled: Owner={unfiledMemory.Owner}");
+
+        _output.WriteLine($"✅ UpdateMemoryOwner method works correctly for moving between workspace and unfiled");
     }
 }

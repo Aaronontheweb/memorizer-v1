@@ -1,6 +1,7 @@
 using Akka.Hosting;
 using Memorizer.Actors;
 using Memorizer.Services;
+using Memorizer.Services.Providers;
 using Memorizer.Settings;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -14,9 +15,9 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services, bool initialize = true)
     {
         services.AddEmbeddings();
+        services.AddStorage(); // Must come before AddLlmServices since provider factory needs IStorage
         services.AddLlmServices();
         services.AddActorSystem();
-        services.AddStorage();
         services.AddServerSettings();
         services.AddCorsSettings();
         services.AddVersioningSettings();
@@ -31,25 +32,17 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddEmbeddings(
         this IServiceCollection services)
     {
-        services
-            .AddSingleton<EmbeddingSettings>(sp =>
-                sp.GetRequiredService<IConfiguration>().GetSection("Embeddings").Get<EmbeddingSettings>() ??
-                throw new ArgumentNullException("Embeddings Settings"))
-            .AddHttpClient<IEmbeddingService, EmbeddingService>((sp, client) =>
-            {
-                EmbeddingSettings settings = sp.GetRequiredService<EmbeddingSettings>();
-                client.BaseAddress = settings.ApiUrl;
-                client.Timeout = settings.Timeout;
-            });
+        // Register EmbeddingSettings with IOptions pattern for reloadable configuration
+        services.AddOptions<EmbeddingSettings>()
+            .BindConfiguration("Embeddings")
+            .ValidateOnStart();
 
-        // Register EmbeddingDimensionService with its own HttpClient
-        // (can't rely on AutoRegister since it needs HttpClient configured)
-        services.AddHttpClient<IEmbeddingDimensionService, EmbeddingDimensionService>((sp, client) =>
-        {
-            EmbeddingSettings settings = sp.GetRequiredService<EmbeddingSettings>();
-            client.BaseAddress = settings.ApiUrl;
-            client.Timeout = settings.Timeout;
-        });
+        // Register EmbeddingService as Scoped so it gets fresh settings on each request
+        // Note: HttpClient is configured with base address in the service constructor
+        services.AddHttpClient<IEmbeddingService, EmbeddingService>();
+
+        // Register EmbeddingDimensionService with its own HttpClient (singleton is fine here)
+        services.AddHttpClient<IEmbeddingDimensionService, EmbeddingDimensionService>();
 
         // Register dimension mismatch state holder for UI warnings
         services.AddSingleton<IDimensionMismatchState, DimensionMismatchState>();
@@ -60,30 +53,14 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddLlmServices(
         this IServiceCollection services)
     {
-        services
-            .AddSingleton<LlmSettings>(sp =>
-            {
-                var config = sp.GetRequiredService<IConfiguration>();
-                var llmSettings = config.GetSection("LLM").Get<LlmSettings>();
-                
-                // If no settings, create default settings
-                if (llmSettings == null)
-                {
-                    llmSettings = new LlmSettings
-                    {
-                        ApiUrl = new Uri("http://localhost:11434"), // Default Ollama URL
-                        Model = "llama3"
-                    };
-                }
-                
-                return llmSettings;
-            })
-            .AddHttpClient<ILlmService, LlmService>((sp, client) =>
-            {
-                LlmSettings settings = sp.GetRequiredService<LlmSettings>();
-                client.BaseAddress = settings.ApiUrl;
-                client.Timeout = settings.Timeout;
-            });
+        // Register LlmSettings with IOptions pattern for reloadable configuration
+        services.AddOptions<LlmSettings>()
+            .BindConfiguration("LLM")
+            .ValidateOnStart();
+
+        // Register IMemorizerAgentProvider as Scoped so it gets fresh settings on each request
+        // Note: HttpClient is configured with base address in the service constructor
+        services.AddHttpClient<IMemorizerAgentProvider, OllamaMemorizerAgentProvider>();
 
         return services;
     }

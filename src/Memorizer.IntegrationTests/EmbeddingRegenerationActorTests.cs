@@ -3,6 +3,7 @@ using Akka.Hosting;
 using Akka.Hosting.TestKit;
 using Memorizer.Actors;
 using Memorizer.Models;
+using Memorizer.Models.ValueTypes;
 using Pgvector;
 using Xunit.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +23,12 @@ public class EmbeddingRegenerationActorTests : TestKit
     private readonly IntegrationTestFixture _fixture;
     private readonly ITestOutputHelper _output;
 
+    // Longer timeout for CI environments where the actor may be busy with async embedding operations
+    private static readonly TimeSpan StatusQueryTimeout = TimeSpan.FromSeconds(15);
+
+    // Total time to wait for embedding regeneration job to complete (CI with 100+ memories can be slow)
+    private static readonly TimeSpan JobCompletionTimeout = TimeSpan.FromMinutes(2);
+
     public EmbeddingRegenerationActorTests(IntegrationTestFixture fixture, ITestOutputHelper output)
         : base(output: output)
     {
@@ -29,11 +36,48 @@ public class EmbeddingRegenerationActorTests : TestKit
         _output = output;
     }
 
+    /// <summary>
+    /// Waits for the embedding regeneration job to complete using TestKit's AwaitConditionAsync.
+    /// Returns the final status once the job transitions from running to idle.
+    /// </summary>
+    private async Task<EmbeddingRegenerationStatus> WaitForJobCompletion(IActorRef actor)
+    {
+        EmbeddingRegenerationStatus? lastStatus = null;
+        bool jobStarted = false;
+
+        await AwaitConditionAsync(async () =>
+        {
+            try
+            {
+                lastStatus = await actor.Ask<EmbeddingRegenerationStatus>(
+                    new GetEmbeddingRegenerationStatus(),
+                    StatusQueryTimeout);
+
+                if (lastStatus.IsRunning)
+                    jobStarted = true;
+
+                _output.WriteLine($"Status: {lastStatus.Status}, IsRunning: {lastStatus.IsRunning}, Processed: {lastStatus.TotalProcessed}");
+
+                // Job is complete when it returns to idle after having been running
+                return jobStarted && !lastStatus.IsRunning;
+            }
+            catch (AskTimeoutException)
+            {
+                // Actor is busy processing - this is expected, keep waiting
+                _output.WriteLine("Status query timed out (actor busy), continuing to wait...");
+                return false;
+            }
+        }, JobCompletionTimeout);
+
+        return lastStatus ?? throw new InvalidOperationException("Job completed but no status was captured");
+    }
+
     [Fact]
     public async Task Actor_Emits_BatchCompleted_When_Processing_Finishes()
     {
-        var storage = Host.Services.GetRequiredService<IStorage>();
-        var embeddingService = Host.Services.GetRequiredService<IEmbeddingService>();
+        // Use a scope to resolve scoped services
+        using var scope = Host.Services.CreateScope();
+        var storage = scope.ServiceProvider.GetRequiredService<IStorage>();
 
         // 1. Get initial count
         var initialCount = (await storage.GetMemoriesPaginated(1, int.MaxValue)).Memories.Count;
@@ -41,39 +85,21 @@ public class EmbeddingRegenerationActorTests : TestKit
         // 2. Add test memories
         var testMemories = new[]
         {
-            await storage.StoreMemory("test", "Content A for embedding regeneration test", "test", new[] { "x" }, 1.0, "Title A"),
-            await storage.StoreMemory("test", "Content B for embedding regeneration test", "test", new[] { "y" }, 1.0, "Title B"),
-            await storage.StoreMemory("test", "Content C for embedding regeneration test", "test", new[] { "z" }, 1.0, "Title C")
+            await storage.StoreMemory("test", "Content A for embedding regeneration test", "test", new[] { "x" }, new Confidence(1.0), "Title A"),
+            await storage.StoreMemory("test", "Content B for embedding regeneration test", "test", new[] { "y" }, new Confidence(1.0), "Title B"),
+            await storage.StoreMemory("test", "Content C for embedding regeneration test", "test", new[] { "z" }, new Confidence(1.0), "Title C")
         };
 
-        var actor = Sys.ActorOf(Props.Create(() => new EmbeddingRegenerationActor(storage, embeddingService)));
+        // Use the Akka.DependencyInjection resolver to create the actor
+        var resolver = Akka.DependencyInjection.DependencyResolver.For(Sys);
+        var actor = Sys.ActorOf(resolver.Props<EmbeddingRegenerationActor>());
 
         // Act: Start the embedding regeneration job
         actor.Tell(new RegenerateAllEmbeddings(PageSize: 2, RequestedBy: "test"), ActorRefs.NoSender);
 
-        // Poll for status until job is complete (actor returns to "idle" state after completion)
-        EmbeddingRegenerationStatus? status = null;
-        var expectedProcessed = initialCount + testMemories.Length;
-        bool jobStarted = false;
+        // Wait for job to complete using TestKit's AwaitConditionAsync
+        var status = await WaitForJobCompletion(actor);
 
-        for (int i = 0; i < 40; i++) // Wait up to 20 seconds
-        {
-            await Task.Delay(500);
-            status = await actor.Ask<EmbeddingRegenerationStatus>(new GetEmbeddingRegenerationStatus(), TimeSpan.FromSeconds(2));
-
-            // Track when job actually starts running
-            if (status.IsRunning)
-                jobStarted = true;
-
-            // Job is complete when it returns to idle after having been running,
-            // or when it's idle and has processed the expected count
-            if (jobStarted && !status.IsRunning)
-                break;
-
-            _output.WriteLine($"Status: {status.Status}, IsRunning: {status.IsRunning}, Processed: {status.TotalProcessed}/{expectedProcessed}");
-        }
-
-        Assert.NotNull(status);
         Assert.False(status.IsRunning, "Job should no longer be running");
 
         // After job completion, the actor returns to idle state
@@ -98,8 +124,9 @@ public class EmbeddingRegenerationActorTests : TestKit
     [Fact]
     public async Task Actor_Regenerates_Both_Content_And_Metadata_Embeddings()
     {
-        var storage = Host.Services.GetRequiredService<IStorage>();
-        var embeddingService = Host.Services.GetRequiredService<IEmbeddingService>();
+        // Use a scope to resolve scoped services
+        using var scope = Host.Services.CreateScope();
+        var storage = scope.ServiceProvider.GetRequiredService<IStorage>();
 
         // Create a test memory
         var testMemory = await storage.StoreMemory(
@@ -107,7 +134,7 @@ public class EmbeddingRegenerationActorTests : TestKit
             "This is test content for dual embedding regeneration verification",
             "test",
             new[] { "dual-test", "embedding" },
-            1.0,
+            new Confidence(1.0),
             "Dual Embedding Test");
 
         // Get original embeddings
@@ -122,28 +149,16 @@ public class EmbeddingRegenerationActorTests : TestKit
         _output.WriteLine($"Original content embedding dimensions: {originalContentEmbedding.Length}");
         _output.WriteLine($"Original metadata embedding dimensions: {originalMetadataEmbedding.Length}");
 
-        var actor = Sys.ActorOf(Props.Create(() => new EmbeddingRegenerationActor(storage, embeddingService)));
+        // Use the Akka.DependencyInjection resolver to create the actor
+        var resolver = Akka.DependencyInjection.DependencyResolver.For(Sys);
+        var actor = Sys.ActorOf(resolver.Props<EmbeddingRegenerationActor>());
 
         // Start regeneration
         actor.Tell(new RegenerateAllEmbeddings(PageSize: 10, RequestedBy: "test"), ActorRefs.NoSender);
 
-        // Wait for completion
-        EmbeddingRegenerationStatus? status = null;
-        bool jobStarted = false;
+        // Wait for job to complete using TestKit's AwaitConditionAsync
+        var status = await WaitForJobCompletion(actor);
 
-        for (int i = 0; i < 40; i++)
-        {
-            await Task.Delay(500);
-            status = await actor.Ask<EmbeddingRegenerationStatus>(new GetEmbeddingRegenerationStatus(), TimeSpan.FromSeconds(2));
-
-            if (status.IsRunning)
-                jobStarted = true;
-
-            if (jobStarted && !status.IsRunning)
-                break;
-        }
-
-        Assert.NotNull(status);
         Assert.False(status.IsRunning);
 
         // Get regenerated memory

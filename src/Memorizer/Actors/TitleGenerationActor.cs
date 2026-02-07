@@ -1,8 +1,10 @@
 using Akka.Actor;
 using Akka.Event;
 using Akka.Streams;
+using Memorizer.Models;
 using Memorizer.Services;
-using Memorizer.Settings;
+using Memorizer.Services.Providers;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Memorizer.Actors;
 
@@ -13,23 +15,19 @@ namespace Memorizer.Actors;
 /// </summary>
 public sealed class TitleGenerationActor : ReceiveActor
 {
-    private readonly IStorage _storage;
-    private readonly ILlmService _llmService;
-    private readonly LlmSettings _settings;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILoggingAdapter _logger;
     private readonly IMaterializer _materializer;
 
     // Progress manager - handles subscriber management and job state
     private ProgressJobManager? _jobManager;
 
-    public TitleGenerationActor(
-        IStorage storage,
-        ILlmService llmService,
-        LlmSettings settings)
+    // Current scope for the running job
+    private IServiceScope? _currentScope;
+
+    public TitleGenerationActor(IServiceProvider serviceProvider)
     {
-        _storage = storage;
-        _llmService = llmService;
-        _settings = settings;
+        _serviceProvider = serviceProvider;
         _logger = Context.GetLogger();
         _materializer = Context.System.Materializer();
 
@@ -98,8 +96,12 @@ public sealed class TitleGenerationActor : ReceiveActor
 
         try
         {
+            // Create a scope for the duration of this job
+            _currentScope = _serviceProvider.CreateScope();
+            var storage = _currentScope.ServiceProvider.GetRequiredService<IStorage>();
+
             // Get memories without titles first to size the job
-            var untitledMemories = await _storage.GetMemoriesWithoutTitles(message.BatchSize);
+            var untitledMemories = await storage.GetMemoriesWithoutTitles(message.BatchSize);
 
             // Create job manager and start job (this sizes the job)
             _jobManager = new ProgressJobManager(_logger, _materializer);
@@ -160,25 +162,32 @@ public sealed class TitleGenerationActor : ReceiveActor
             ));
             _jobManager?.Fail(ex.Message);
             _jobManager = null;
+            _currentScope?.Dispose();
+            _currentScope = null;
             Become(Idle);
         }
     }
 
     private async Task HandleGenerateTitleForMemory(GenerateTitleForMemory message)
     {
+        if (_currentScope == null) return;
+
         _logger.Debug("Generating title for memory {0}", message.MemoryId);
 
         try
         {
-            // Generate title using LLM service
-            var title = await _llmService.GenerateTitle(
+            var storage = _currentScope.ServiceProvider.GetRequiredService<IStorage>();
+            var memorizerAgent = _currentScope.ServiceProvider.GetRequiredService<IMemorizerAgentProvider>();
+
+            // Generate title using Memorizer Agent provider
+            var title = await memorizerAgent.GenerateTitleAsync(
                 message.Content,
                 message.Type,
                 message.Tags,
                 maxTitleLength: 80);
 
             // Update the memory with the generated title
-            await _storage.UpdateMemoryTitle(message.MemoryId, title);
+            await storage.UpdateMemoryTitle(message.MemoryId, title);
 
             _logger.Debug("Successfully generated title '{0}' for memory {1}", title, message.MemoryId);
 
@@ -253,6 +262,10 @@ public sealed class TitleGenerationActor : ReceiveActor
         _jobManager?.Complete();
         _jobManager = null;
 
+        // Dispose the scope
+        _currentScope?.Dispose();
+        _currentScope = null;
+
         Become(Idle);
     }
 
@@ -306,8 +319,4 @@ public sealed class TitleGenerationActor : ReceiveActor
         ));
     }
 
-    public static Props Props(IStorage storage, ILlmService llmService, LlmSettings settings)
-    {
-        return Akka.Actor.Props.Create(() => new TitleGenerationActor(storage, llmService, settings));
-    }
 }

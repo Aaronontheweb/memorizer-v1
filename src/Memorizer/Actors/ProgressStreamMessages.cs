@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
+using Memorizer.Models;
 
 namespace Memorizer.Actors;
 
@@ -59,7 +60,7 @@ public sealed record ProgressEvent(
     TimeSpan? Duration = null,
 
     /// <summary>IDs of memories that failed processing</summary>
-    List<Guid>? FailedIds = null,
+    List<MemoryId>? FailedIds = null,
 
     /// <summary>Optional status message for detailed progress updates</summary>
     string? Message = null

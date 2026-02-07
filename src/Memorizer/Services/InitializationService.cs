@@ -1,7 +1,11 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Akka.Actor;
 using Akka.Hosting;
 using Memorizer.Actors;
+using Memorizer.Models;
+using Memorizer.Models.ValueTypes;
+using Memorizer.Settings;
 
 namespace Memorizer.Services;
 
@@ -23,6 +27,11 @@ public sealed class InitializationService : BackgroundService
         // Run migrations first as they are critical
         await RunMigrationsAsync(stoppingToken);
 
+        // Seed provider settings from environment configuration
+        // This ensures backwards compatibility with V1 configurations and fixes
+        // beta1 installations that had incorrect default values
+        await SeedProviderSettingsFromConfigAsync(stoppingToken);
+
         // Validate embedding dimensions and set mismatch state for UI warnings
         await ValidateEmbeddingDimensions(stoppingToken);
 
@@ -31,6 +40,27 @@ public sealed class InitializationService : BackgroundService
 
         // Then add default prompt
         await AddDefaultPrompt(stoppingToken);
+
+        // Ensure all projects and workspaces have system memories for semantic search
+        await SeedProjectAndWorkspaceSystemMemoriesAsync(stoppingToken);
+
+        // Seed sample data for local development if enabled
+        await SeedSampleDataAsync(stoppingToken);
+    }
+
+    private async Task SeedSampleDataAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var scope = _services.CreateScope();
+            var seedDataService = scope.ServiceProvider.GetRequiredService<ISeedDataService>();
+            await seedDataService.SeedAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to seed sample data: {Message}", ex.Message);
+            // Don't fail startup - seeding is optional for development
+        }
     }
     
     private async Task RunMigrationsAsync(CancellationToken ct = default)
@@ -52,14 +82,285 @@ public sealed class InitializationService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Synchronizes provider settings between environment configuration and database.
+    ///
+    /// Flow:
+    /// 1. If no database settings exist: seed from environment config
+    /// 2. If database settings exist with localhost defaults AND environment has different config:
+    ///    update database to use environment config (fixes beta1 upgrade path)
+    /// 3. Load final database settings back into IConfiguration so IOptionsSnapshot picks them up
+    ///
+    /// This ensures backwards compatibility when upgrading from V1 or from beta1
+    /// which had incorrect default values seeded in the database.
+    /// </summary>
+    private async Task SeedProviderSettingsFromConfigAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            // Create a scope to resolve scoped services (IStorage depends on IEmbeddingService which uses IOptionsSnapshot)
+            using var scope = _services.CreateScope();
+            var storage = scope.ServiceProvider.GetRequiredService<IStorage>();
+            var config = _services.GetRequiredService<IConfiguration>();
+
+            // Get environment configuration
+            var embeddingSettings = config.GetSection("Embeddings").Get<EmbeddingSettings>() ?? new EmbeddingSettings();
+            var llmSettings = config.GetSection("LLM").Get<LlmSettings>() ?? new LlmSettings();
+
+            // Step 1 & 2: Seed/update database from environment config if needed
+            await SeedOrUpdateEmbeddingProviderAsync(storage, embeddingSettings, ct);
+            await SeedOrUpdateAgentProviderAsync(storage, llmSettings, ct);
+
+            // Step 3: Load database settings back into configuration
+            // This ensures IOptionsSnapshot picks up the authoritative database values
+            await LoadDatabaseSettingsIntoConfigurationAsync(storage, config, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync provider settings: {Message}", ex.Message);
+            // Don't fail startup - the system can still work, user can configure via UI
+        }
+    }
+
+    /// <summary>
+    /// Loads provider settings from the database and updates the in-memory configuration.
+    /// This allows IOptionsSnapshot to pick up database-configured values.
+    /// </summary>
+    private async Task LoadDatabaseSettingsIntoConfigurationAsync(IStorage storage, IConfiguration config, CancellationToken ct)
+    {
+        try
+        {
+            // Load embedding provider settings from database
+            var embeddingProvider = await storage.GetActiveProviderAsync(ProviderTypes.Embedding, ct);
+            if (embeddingProvider != null)
+            {
+                var providerConfig = embeddingProvider.Config.RootElement;
+
+                if (providerConfig.TryGetProperty("apiUrl", out var apiUrlProp))
+                {
+                    config["Embeddings:ApiUrl"] = apiUrlProp.GetString();
+                }
+                if (providerConfig.TryGetProperty("model", out var modelProp))
+                {
+                    config["Embeddings:Model"] = modelProp.GetString();
+                }
+
+                _logger.LogInformation(
+                    "Loaded embedding settings from database: ApiUrl={ApiUrl}, Model={Model}",
+                    config["Embeddings:ApiUrl"], config["Embeddings:Model"]);
+            }
+
+            // Load LLM/Agent provider settings from database
+            var agentProvider = await storage.GetActiveProviderAsync(ProviderTypes.MemorizerAgent, ct);
+            if (agentProvider != null)
+            {
+                var providerConfig = agentProvider.Config.RootElement;
+
+                if (providerConfig.TryGetProperty("apiUrl", out var apiUrlProp))
+                {
+                    config["LLM:ApiUrl"] = apiUrlProp.GetString();
+                }
+                if (providerConfig.TryGetProperty("model", out var modelProp))
+                {
+                    config["LLM:Model"] = modelProp.GetString();
+                }
+                if (providerConfig.TryGetProperty("timeout", out var timeoutProp))
+                {
+                    config["LLM:Timeout"] = timeoutProp.GetString();
+                }
+
+                _logger.LogInformation(
+                    "Loaded LLM settings from database: ApiUrl={ApiUrl}, Model={Model}",
+                    config["LLM:ApiUrl"], config["LLM:Model"]);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load database settings into configuration: {Message}", ex.Message);
+            // Continue with environment config values
+        }
+    }
+
+    private async Task SeedOrUpdateEmbeddingProviderAsync(IStorage storage, EmbeddingSettings settings, CancellationToken ct)
+    {
+        var existingProviders = await storage.GetAllProvidersAsync(ProviderTypes.Embedding, ct);
+        var activeProvider = existingProviders.FirstOrDefault(p => p.IsActive);
+
+        var configApiUrl = settings.ApiUrl.ToString().TrimEnd('/');
+        var configModel = settings.Model;
+
+        if (activeProvider == null)
+        {
+            // No provider exists - create one from config
+            _logger.LogInformation(
+                "No embedding provider configured - seeding from environment: ApiUrl={ApiUrl}, Model={Model}",
+                configApiUrl, configModel);
+
+            var newProvider = new ProviderSettings
+            {
+                Id = (ProviderSettingsId)Guid.NewGuid(),
+                ProviderType = ProviderTypes.Embedding,
+                ProviderName = ProviderNames.Ollama,
+                DisplayName = "Ollama Embeddings",
+                Config = JsonDocument.Parse(JsonSerializer.Serialize(new
+                {
+                    apiUrl = configApiUrl,
+                    model = configModel
+                })),
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await storage.SaveProviderSettingsAsync(newProvider, ct);
+            _logger.LogInformation("Embedding provider seeded successfully from environment configuration");
+        }
+        else
+        {
+            // Provider exists - check if it needs updating (beta1 fix)
+            var existingConfig = activeProvider.Config.RootElement;
+            var existingApiUrl = existingConfig.TryGetProperty("apiUrl", out var urlProp)
+                ? urlProp.GetString() ?? ""
+                : "";
+            var existingModel = existingConfig.TryGetProperty("model", out var modelProp)
+                ? modelProp.GetString() ?? ""
+                : "";
+
+            // Check if existing config has localhost defaults but environment has different values
+            var hasLocalhostDefault = existingApiUrl.Contains("localhost:11434") || existingApiUrl.Contains("127.0.0.1:11434");
+            var envHasDifferentConfig = !configApiUrl.Contains("localhost:11434") && !configApiUrl.Contains("127.0.0.1:11434");
+
+            if (hasLocalhostDefault && envHasDifferentConfig)
+            {
+                _logger.LogInformation(
+                    "Updating embedding provider from localhost defaults to environment config: " +
+                    "ApiUrl={OldUrl}->{NewUrl}, Model={OldModel}->{NewModel}",
+                    existingApiUrl, configApiUrl, existingModel, configModel);
+
+                var updatedProvider = new ProviderSettings
+                {
+                    Id = activeProvider.Id,
+                    ProviderType = ProviderTypes.Embedding,
+                    ProviderName = activeProvider.ProviderName,
+                    DisplayName = activeProvider.DisplayName,
+                    Config = JsonDocument.Parse(JsonSerializer.Serialize(new
+                    {
+                        apiUrl = configApiUrl,
+                        model = configModel
+                    })),
+                    IsActive = true,
+                    CreatedAt = activeProvider.CreatedAt,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await storage.SaveProviderSettingsAsync(updatedProvider, ct);
+                _logger.LogInformation("Embedding provider updated to use environment configuration");
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "Embedding provider already configured: ApiUrl={ApiUrl}, Model={Model}",
+                    existingApiUrl, existingModel);
+            }
+        }
+    }
+
+    private async Task SeedOrUpdateAgentProviderAsync(IStorage storage, LlmSettings settings, CancellationToken ct)
+    {
+        var existingProviders = await storage.GetAllProvidersAsync(ProviderTypes.MemorizerAgent, ct);
+        var activeProvider = existingProviders.FirstOrDefault(p => p.IsActive);
+
+        var configApiUrl = settings.ApiUrl.ToString().TrimEnd('/');
+        var configModel = settings.Model;
+        var configTimeout = settings.Timeout.ToString();
+
+        if (activeProvider == null)
+        {
+            // No provider exists - create one from config
+            _logger.LogInformation(
+                "No memorizer agent provider configured - seeding from environment: ApiUrl={ApiUrl}, Model={Model}",
+                configApiUrl, configModel);
+
+            var newProvider = new ProviderSettings
+            {
+                Id = (ProviderSettingsId)Guid.NewGuid(),
+                ProviderType = ProviderTypes.MemorizerAgent,
+                ProviderName = ProviderNames.Ollama,
+                DisplayName = "Ollama (Local LLM)",
+                Config = JsonDocument.Parse(JsonSerializer.Serialize(new
+                {
+                    apiUrl = configApiUrl,
+                    model = configModel,
+                    timeout = configTimeout
+                })),
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await storage.SaveProviderSettingsAsync(newProvider, ct);
+            _logger.LogInformation("Memorizer agent provider seeded successfully from environment configuration");
+        }
+        else
+        {
+            // Provider exists - check if it needs updating (beta1 fix)
+            var existingConfig = activeProvider.Config.RootElement;
+            var existingApiUrl = existingConfig.TryGetProperty("apiUrl", out var urlProp)
+                ? urlProp.GetString() ?? ""
+                : "";
+            var existingModel = existingConfig.TryGetProperty("model", out var modelProp)
+                ? modelProp.GetString() ?? ""
+                : "";
+
+            // Check if existing config has localhost defaults but environment has different values
+            var hasLocalhostDefault = existingApiUrl.Contains("localhost:11434") || existingApiUrl.Contains("127.0.0.1:11434");
+            var envHasDifferentConfig = !configApiUrl.Contains("localhost:11434") && !configApiUrl.Contains("127.0.0.1:11434");
+
+            if (hasLocalhostDefault && envHasDifferentConfig)
+            {
+                _logger.LogInformation(
+                    "Updating memorizer agent provider from localhost defaults to environment config: " +
+                    "ApiUrl={OldUrl}->{NewUrl}, Model={OldModel}->{NewModel}",
+                    existingApiUrl, configApiUrl, existingModel, configModel);
+
+                var updatedProvider = new ProviderSettings
+                {
+                    Id = activeProvider.Id,
+                    ProviderType = ProviderTypes.MemorizerAgent,
+                    ProviderName = activeProvider.ProviderName,
+                    DisplayName = activeProvider.DisplayName,
+                    Config = JsonDocument.Parse(JsonSerializer.Serialize(new
+                    {
+                        apiUrl = configApiUrl,
+                        model = configModel,
+                        timeout = configTimeout
+                    })),
+                    IsActive = true,
+                    CreatedAt = activeProvider.CreatedAt,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await storage.SaveProviderSettingsAsync(updatedProvider, ct);
+                _logger.LogInformation("Memorizer agent provider updated to use environment configuration");
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "Memorizer agent provider already configured: ApiUrl={ApiUrl}, Model={Model}",
+                    existingApiUrl, existingModel);
+            }
+        }
+    }
+
     private async Task AddDefaultPrompt(CancellationToken ct = default)
     {
         // Add default system memory after schema migration
         try
         {
-            var storage = _services.GetRequiredService<IStorage>();
-            var embeddingService = _services.GetRequiredService<IEmbeddingService>();
-            var statsService = _services.GetRequiredService<IMemoryStatsService>();
+            // Create a scope to resolve scoped services (IOptionsSnapshot requires a scope)
+            using var scope = _services.CreateScope();
+            var storage = scope.ServiceProvider.GetRequiredService<IStorage>();
+            var statsService = scope.ServiceProvider.GetRequiredService<IMemoryStatsService>();
 
             var currentStats = await statsService.GetStatsAsync(ct);
             if (currentStats.TotalMemories > 0)
@@ -118,7 +419,7 @@ Remove a memory by its ID";
                 source: "system",
                 title: "PostgMem System Documentation",
                 tags: ["system", "documentation", "help", "reference"],
-                confidence: 1.0, cancellationToken: ct);
+                confidence: new Confidence(1.0), cancellationToken: ct);
 
             _logger.LogInformation("System description memory created/updated successfully");
 
@@ -240,7 +541,7 @@ This demonstrates how Mermaid diagrams render in both light and dark themes!";
                 source: "system",
                 title: "Memorizer Architecture with Mermaid Diagrams",
                 tags: ["architecture", "mermaid", "diagrams", "documentation", "demo"],
-                confidence: 1.0, cancellationToken: ct);
+                confidence: new Confidence(1.0), cancellationToken: ct);
 
             _logger.LogInformation("Mermaid diagram demo memory created successfully");
         }
@@ -254,7 +555,9 @@ This demonstrates how Mermaid diagrams render in both light and dark themes!";
     {
         try
         {
-            var dimensionService = _services.GetRequiredService<IEmbeddingDimensionService>();
+            // Create a scope to resolve scoped services (IOptionsSnapshot requires a scope)
+            using var scope = _services.CreateScope();
+            var dimensionService = scope.ServiceProvider.GetRequiredService<IEmbeddingDimensionService>();
             var mismatchState = _services.GetRequiredService<IDimensionMismatchState>();
 
             _logger.LogInformation("Validating embedding dimensions...");
@@ -282,7 +585,7 @@ This demonstrates how Mermaid diagrams render in both light and dark themes!";
                 _logger.LogError(
                     "  - Schema Dimensions: VECTOR({Schema})", validation.DatabaseSchemaDimensions?.ToString() ?? "Unknown");
                 _logger.LogError(
-                    "ACTION REQUIRED: Navigate to /ui/tools/dimension-migration to run the migration tool");
+                    "ACTION REQUIRED: Navigate to /tools/dimension-migration to run the migration tool");
                 _logger.LogError(
                     "DOCUMENTATION: https://github.com/petabridge/memorizer-v1/blob/dev/docs/embedding-models.md");
             }
@@ -311,7 +614,9 @@ This demonstrates how Mermaid diagrams render in both light and dark themes!";
     {
         try
         {
-            var storage = _services.GetRequiredService<IStorage>();
+            // Create a scope to resolve scoped services (IOptionsSnapshot requires a scope)
+            using var scope = _services.CreateScope();
+            var storage = scope.ServiceProvider.GetRequiredService<IStorage>();
             var countWithoutMetadata = await storage.CountMemoriesWithoutMetadataEmbeddings(ct);
 
             if (countWithoutMetadata > 0)
@@ -337,6 +642,48 @@ This demonstrates how Mermaid diagrams render in both light and dark themes!";
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to check or trigger embedding migration: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Runs one-time data migration to seed system memories for existing projects and workspaces.
+    /// Uses the data_migrations table to track whether this migration has already been executed.
+    /// This enables semantic search on project/workspace metadata for items that existed
+    /// before this feature was implemented.
+    /// </summary>
+    private async Task SeedProjectAndWorkspaceSystemMemoriesAsync(CancellationToken ct = default)
+    {
+        const string migrationName = "seed_project_workspace_system_memories_v1";
+        const string migrationDescription = "Seeds system memories for existing projects and workspaces to enable semantic search on their metadata";
+
+        try
+        {
+            using var scope = _services.CreateScope();
+            var storage = scope.ServiceProvider.GetRequiredService<IStorage>();
+
+            // Use the one-time flag system to ensure this migration only runs once
+            var wasExecuted = await storage.ExecuteDataMigrationIfNeededAsync(
+                migrationName,
+                migrationDescription,
+                async (token) =>
+                {
+                    var (projectsSeeded, workspacesSeeded) = await storage.SeedProjectAndWorkspaceSystemMemoriesAsync(token);
+
+                    _logger.LogInformation(
+                        "Data migration '{MigrationName}' completed: seeded {Projects} projects, {Workspaces} workspaces",
+                        migrationName, projectsSeeded, workspacesSeeded);
+                },
+                ct);
+
+            if (!wasExecuted)
+            {
+                _logger.LogDebug("Data migration '{MigrationName}' already executed, skipping", migrationName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to run data migration '{MigrationName}': {Message}", migrationName, ex.Message);
+            // Don't fail startup - search will fall back to ILIKE for items without system memories
         }
     }
 }

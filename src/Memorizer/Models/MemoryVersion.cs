@@ -1,20 +1,21 @@
 using System.Text.Json;
+using Memorizer.Models.ValueTypes;
 
 namespace Memorizer.Models;
 
 public class MemoryVersion
 {
-    public Guid VersionId { get; init; }
-    public Guid MemoryId { get; init; }
-    public int VersionNumber { get; init; }
+    public VersionId VersionId { get; init; }
+    public MemoryId MemoryId { get; init; }
+    public VersionNumber VersionNumber { get; init; }
     public string Type { get; init; } = string.Empty;
     public JsonDocument Content { get; init; } = JsonDocument.Parse("{}");
     public string Text { get; init; } = string.Empty;
     public string Source { get; init; } = string.Empty;
     public string[]? Tags { get; init; }
-    public double Confidence { get; init; }
+    public Confidence Confidence { get; init; }
     public string? Title { get; init; }
-    public Guid[] RelationshipIds { get; init; } = Array.Empty<Guid>();
+    public RelationshipId[] RelationshipIds { get; init; } = [];
     public DateTime CreatedAt { get; init; }
     public DateTime VersionedAt { get; init; }
 

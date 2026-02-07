@@ -4,7 +4,10 @@
 
 Memorizer is a .NET-based service that allows AI agents to store, retrieve, and search through memories using vector embeddings. It leverages PostgreSQL with the pgvector extension to provide efficient similarity search capabilities.
 
+![Memorizer - Memory List](docs/images/memory-list-dark.png)
+
 Key features:
+- **Workspaces & Projects** - Organize memories into hierarchical workspaces and projects with status tracking
 - Store structured memories with vector embeddings
 - Retrieve memories by ID
 - Semantic search through memories using vector similarity
@@ -14,11 +17,15 @@ Key features:
 - Revert memories to previous versions with full audit trail
 - Create relationships between memories to form knowledge graphs
 - Web UI for manually adding, editing, deleting, viewing memories, and managing versions
+- **Provider Settings** - Configure embedding and LLM providers through the UI (Ollama, OpenAI, and compatible APIs)
 - MCP (Model Context Protocol) integration for easy use with AI agents
+- **Light & Dark theme** support
+
+![Memorizer - Workspace Detail](docs/images/workspace-detail-dark.png)
 
 ## Technologies
 
-- .NET 9.0
+- .NET 10.0
 - PostgreSQL with pgvector extension
 - Model Context Protocol (MCP)
 - ASP.NET Core
@@ -29,6 +36,7 @@ Key features:
 
 ## 📖 Documentation
 
+- [Feature Gallery (Screenshots)](docs/FEATURES.md)
 - [Configuration & Advanced Setup](docs/configuration.md)
 - [Security Configuration](docs/security.md)
 - [Embedding Models & Dimensions](docs/embedding-models.md)
@@ -56,7 +64,7 @@ This will:
 - Start Ollama (port 11434)
 - Start Memorizer API (port 5000)
 
-**View the Memorizer Web UI on http://localhost:5000/ui**.
+**View the Memorizer Web UI on http://localhost:5000**.
 
 ### 🚀 Local Development Builds
 
@@ -64,7 +72,7 @@ If you want to build and run from source:
 
 #### Prerequisites
 - Docker and Docker Compose
-- .NET 9.0 SDK
+- .NET 10.0 SDK
 
 #### 1. Build and Publish Local Container
 
@@ -86,6 +94,42 @@ This starts the same services but uses your locally built image.
 
 ---
 
+## Upgrading to Memorizer 2.0
+
+> [!CAUTION]
+> **Back up your database before upgrading.** Memorizer 2.0 runs automatic schema migrations on startup that alter tables and add new columns. These migrations are not reversible. If something goes wrong, you will need to restore from your backup.
+
+### Backup Instructions
+
+Before pulling the new Memorizer 2.0 image, create a PostgreSQL dump of your existing database:
+
+```bash
+# Create a full database backup
+docker exec memorizer-postgres pg_dump -U postgres memorizer > memorizer-backup-$(date +%Y%m%d).sql
+
+# Or use pg_dump with compression
+docker exec memorizer-postgres pg_dump -U postgres -Fc memorizer > memorizer-backup-$(date +%Y%m%d).dump
+```
+
+To restore from a backup if needed:
+
+```bash
+# Restore from SQL dump
+docker exec -i memorizer-postgres psql -U postgres memorizer < memorizer-backup-20250207.sql
+
+# Or restore from compressed dump
+docker exec -i memorizer-postgres pg_restore -U postgres -d memorizer memorizer-backup-20250207.dump
+```
+
+### Breaking Changes in 2.0
+
+- **MCP endpoint moved from `/` to `/mcp`**. Update your MCP client configurations from `http://localhost:5000` to `http://localhost:5000/mcp`.
+- **Web UI moved from `/ui` to `/`**. The Web UI is now at the root path.
+- **New database tables**: Workspaces, projects, provider settings, data migrations, and archetype tracking are added automatically on first startup.
+- **Existing memories are preserved**: All your V1 memories will continue to work. They will appear as "Unfiled" until you organize them into workspaces and projects.
+
+---
+
 ## 🔌 MCP Configuration Example
 
 To use Memorizer with any MCP-compatible client, add the following to your configuration (e.g., `mcp.json`):
@@ -93,12 +137,12 @@ To use Memorizer with any MCP-compatible client, add the following to your confi
 ```json
 {
   "memorizer": {
-    "url": "http://localhost:5000"
+    "url": "http://localhost:5000/mcp"
   }
 }
 ```
 
-This uses the modern Streamable HTTP transport (MCP spec 2025-03-26+).
+This uses the modern Streamable HTTP transport (MCP spec 2025-03-26+). Note that the MCP endpoint is at `/mcp` (changed from `/` in 2.0).
 
 ---
 
@@ -110,7 +154,7 @@ Memorizer includes a web-based user interface for managing memories through your
 
 Once the application is running (via `docker-compose up -d`), you can access the Web UI at:
 
-**http://localhost:5000/ui/**
+**http://localhost:5000/**
 
 ### Features
 
@@ -118,7 +162,7 @@ Once the application is running (via `docker-compose up -d`), you can access the
 - **Version Control**: View version history, compare versions with visual diffs, and revert to previous versions
 - **Search & Filter**: Search memories using semantic similarity and filter by tags
 - **Statistics Dashboard**: View memory counts, tag distributions, and system statistics
-- **MCP Configuration**: Get the MCP configuration JSON for connecting clients at `/ui/mcp-config`
+- **MCP Configuration**: Get the MCP configuration JSON for connecting clients at `/mcp-config`
 
 The Web UI provides a user-friendly interface for all Memorizer functionality, making it easy to manage your AI agent's memory without needing to use the MCP tools directly.
 

@@ -168,8 +168,8 @@ async function loadComparison() {
         const comparison = await response.json();
 
         // Set version links
-        document.getElementById('viewFromVersionLink').href = `/ui/view/${memoryId}/version/${fromVersion}`;
-        document.getElementById('viewToVersionLink').href = `/ui/view/${memoryId}/version/${toVersion}`;
+        document.getElementById('viewFromVersionLink').href = `/view/${memoryId}/version/${fromVersion}`;
+        document.getElementById('viewToVersionLink').href = `/view/${memoryId}/version/${toVersion}`;
         document.getElementById('viewFromVersionLabel').textContent = `View Version ${fromVersion}`;
         document.getElementById('viewToVersionLabel').textContent = `View Version ${toVersion}`;
 
@@ -200,7 +200,7 @@ function showError(message) {
             <i class="fas fa-exclamation-triangle me-2"></i>
             ${escapeHtml(message)}
             <br><br>
-            <a href="/ui/view/${memoryId}" class="btn btn-outline-danger btn-sm">
+            <a href="/view/${memoryId}" class="btn btn-outline-danger btn-sm">
                 <i class="fas fa-arrow-left me-1"></i>
                 Back to Memory
             </a>
@@ -248,7 +248,7 @@ function navigateToComparison() {
     }
 
     // Navigate to the new comparison URL
-    window.location.href = `/ui/view/${memoryId}/compare/${newFromVersion}/${newToVersion}`;
+    window.location.href = `/view/${memoryId}/compare/${newFromVersion}/${newToVersion}`;
 }
 
 function displayDiffStats(comparison) {

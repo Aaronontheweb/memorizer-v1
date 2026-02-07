@@ -4,6 +4,7 @@ using Akka.Hosting;
 using Akka.Hosting.TestKit;
 using Akka.Streams;
 using Memorizer.Actors;
+using Memorizer.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit.Abstractions;
@@ -139,8 +140,8 @@ public class ProgressJobManagerTests : TestKit
         // Arrange
         var manager = CreateJobManager();
         manager.StartJob(totalItems: 5, requestedBy: "test-user");
-        var failedId1 = Guid.NewGuid();
-        var failedId2 = Guid.NewGuid();
+        var failedId1 = MemoryId.New();
+        var failedId2 = MemoryId.New();
 
         // Act
         manager.RecordSuccess();
@@ -203,7 +204,7 @@ public class ProgressJobManagerTests : TestKit
         manager.StartJob(totalItems: 10, requestedBy: "test-user");
         manager.RecordSuccess();
         manager.RecordSuccess();
-        manager.RecordFailure(Guid.NewGuid());
+        manager.RecordFailure(MemoryId.New());
 
         // Act
         var evt = manager.CreateCurrentEvent();
@@ -248,7 +249,7 @@ public class ProgressJobManagerTests : TestKit
         manager.StartJob(totalItems: 3, requestedBy: "test-user");
         manager.RecordSuccess();
         manager.RecordSuccess();
-        manager.RecordFailure(Guid.NewGuid());
+        manager.RecordFailure(MemoryId.New());
 
         // Act
         manager.Complete();

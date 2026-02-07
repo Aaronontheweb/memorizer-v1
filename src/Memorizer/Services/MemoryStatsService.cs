@@ -59,7 +59,7 @@ public class MemoryStats
     public long TotalStorageBytes { get; set; }
 }
 
-[AutoRegisterInterfaces(ServiceLifetime.Singleton)]
+[AutoRegisterInterfaces(ServiceLifetime.Scoped)]
 public class MemoryStatsService : IMemoryStatsService
 {
     private readonly NpgsqlDataSource _dataSource;

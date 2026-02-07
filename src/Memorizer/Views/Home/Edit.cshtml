@@ -19,6 +19,20 @@
                     </div>
                 </div>
                 
+                <!-- Location/Owner selector -->
+                <div id="memoryLocationSection" class="mb-4" style="display: none;">
+                    <label for="location" class="form-label">Location</label>
+                    <div class="d-flex gap-2">
+                        <select class="form-select" id="location" style="flex: 1;">
+                            <option value="">Unfiled (no workspace/project)</option>
+                        </select>
+                        <button type="button" class="btn btn-outline-primary" id="saveLocationBtn" style="display: none;" onclick="saveLocationChange()">
+                            <i class="fas fa-save me-1"></i>Save
+                        </button>
+                    </div>
+                    <div class="form-text">Change the workspace or project this memory belongs to</div>
+                </div>
+
                 <!-- Edit form (hidden initially) -->
                 <form id="editMemoryForm" style="display: none;">
                     <div class="mb-3">
@@ -129,6 +143,153 @@ function updateConfidenceValue() {
     document.getElementById('confidenceValue').textContent = parseFloat(confidence).toFixed(1);
 }
 
+let originalLocationValue = ''; // Track original value to detect changes
+
+// Load workspace tree and populate the location dropdown
+async function loadLocationOptions(currentOwner) {
+    const locationSelect = document.getElementById('location');
+    const locationSection = document.getElementById('memoryLocationSection');
+
+    try {
+        const response = await fetch('/api/workspace-tree');
+        if (!response.ok) {
+            console.error('Failed to load workspace tree');
+            return;
+        }
+
+        const data = await response.json();
+
+        // Build hierarchical options from workspaces
+        function addWorkspaceOptions(workspaces, prefix = '') {
+            for (const ws of workspaces) {
+                const indent = prefix ? prefix + ' ' : '';
+
+                // Add workspace option
+                const wsOption = document.createElement('option');
+                wsOption.value = `workspace:${ws.id}`;
+                wsOption.textContent = indent + '📁 ' + ws.name;
+                if (!prefix) wsOption.style.fontWeight = 'bold';
+                locationSelect.appendChild(wsOption);
+
+                // Add projects under this workspace
+                if (ws.projects && ws.projects.length > 0) {
+                    addProjectOptions(ws.projects, prefix + '──');
+                }
+
+                // Add nested workspaces
+                if (ws.children && ws.children.length > 0) {
+                    addWorkspaceOptions(ws.children, prefix + '──');
+                }
+            }
+        }
+
+        function addProjectOptions(projects, prefix) {
+            for (const proj of projects) {
+                const option = document.createElement('option');
+                option.value = `project:${proj.id}`;
+                option.textContent = prefix + ' 📋 ' + proj.name;
+                locationSelect.appendChild(option);
+
+                // Add nested projects
+                if (proj.children && proj.children.length > 0) {
+                    addProjectOptions(proj.children, prefix + '──');
+                }
+            }
+        }
+
+        if (data.workspaces) {
+            addWorkspaceOptions(data.workspaces);
+        }
+
+        // Set current value based on owner
+        const emptyGuid = '00000000-0000-0000-0000-000000000000';
+        if (currentOwner && currentOwner.id !== emptyGuid) {
+            const ownerType = currentOwner.type?.toLowerCase();
+            if (ownerType === 'workspace') {
+                locationSelect.value = `workspace:${currentOwner.id}`;
+            } else if (ownerType === 'project') {
+                locationSelect.value = `project:${currentOwner.id}`;
+            }
+        } else {
+            locationSelect.value = '';
+        }
+
+        originalLocationValue = locationSelect.value;
+
+        // Add change listener to show/hide save button
+        locationSelect.addEventListener('change', function() {
+            const saveBtn = document.getElementById('saveLocationBtn');
+            if (this.value !== originalLocationValue) {
+                saveBtn.style.display = 'inline-block';
+            } else {
+                saveBtn.style.display = 'none';
+            }
+        });
+
+        locationSection.style.display = 'block';
+    } catch (error) {
+        console.error('Error loading workspace tree:', error);
+    }
+}
+
+// Save location change via PATCH API
+async function saveLocationChange() {
+    const locationSelect = document.getElementById('location');
+    const saveBtn = document.getElementById('saveLocationBtn');
+    const locationValue = locationSelect.value;
+
+    let workspaceId = null;
+    let projectId = null;
+
+    if (locationValue) {
+        const [type, id] = locationValue.split(':');
+        if (type === 'workspace') {
+            workspaceId = id;
+        } else if (type === 'project') {
+            projectId = id;
+        }
+    }
+
+    const originalBtnText = saveBtn.innerHTML;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
+    saveBtn.disabled = true;
+
+    try {
+        const response = await fetch(`/api/memory/${memoryId}/owner`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ workspaceId, projectId })
+        });
+
+        if (response.ok) {
+            originalLocationValue = locationValue;
+            saveBtn.style.display = 'none';
+            // Show brief success message
+            saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>Saved!';
+            saveBtn.classList.remove('btn-outline-primary');
+            saveBtn.classList.add('btn-success');
+            saveBtn.style.display = 'inline-block';
+            setTimeout(() => {
+                saveBtn.style.display = 'none';
+                saveBtn.innerHTML = originalBtnText;
+                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.add('btn-outline-primary');
+            }, 1500);
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.title || 'Failed to update location');
+        }
+    } catch (error) {
+        console.error('Error updating location:', error);
+        alert('Error updating location: ' + error.message);
+        saveBtn.innerHTML = originalBtnText;
+    } finally {
+        saveBtn.disabled = false;
+    }
+}
+
 // Load memory data on page load
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Memory ID:', memoryId);
@@ -203,6 +364,9 @@ function populateForm(memory) {
         document.getElementById('tags').value = memory.tags ? memory.tags.join(', ') : '';
         document.getElementById('confidence').value = memory.confidence || 1.0;
         updateConfidenceValue();
+
+        // Load location dropdown with current owner
+        loadLocationOptions(memory.owner);
         // Related memories UI
         if (memory.relationships && memory.relationships.length > 0) {
             const section = document.getElementById('relatedMemoriesSection');
@@ -213,7 +377,7 @@ function populateForm(memory) {
                 const type = rel.relatedMemoryType || '';
                 const li = document.createElement('li');
                 li.className = 'list-group-item d-flex justify-content-between align-items-center';
-                li.innerHTML = `<a href='/ui/view/${rel.toMemoryId}'><i class='fas fa-link me-1'></i>${escapeHtml(title)}</a> <span class='badge bg-secondary'>${escapeHtml(type)}</span>`;
+                li.innerHTML = `<a href='/view/${rel.toMemoryId}'><i class='fas fa-link me-1'></i>${escapeHtml(title)}</a> <span class='badge bg-secondary'>${escapeHtml(type)}</span>`;
                 list.appendChild(li);
             });
             section.style.display = '';
@@ -260,8 +424,8 @@ document.getElementById('editMemoryForm').addEventListener('submit', async funct
         });
         
         if (response.ok) {
-            // Success - redirect to the memory list
-            window.location.href = '/ui';
+            // Success - redirect to view the updated memory
+            window.location.href = `/view/${memoryId}`;
         } else {
             await handleApiError(response, 'Failed to update memory');
         }

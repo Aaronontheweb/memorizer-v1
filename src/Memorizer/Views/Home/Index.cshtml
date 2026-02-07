@@ -13,6 +13,19 @@
     <div>        <a asp-controller="Home" asp-action="Create" class="btn btn-primary">            <i class="fas fa-plus me-2"></i>            Add Memory        </a>    </div>
 </div>
 
+<!-- Filter Context Banner (populated by JavaScript) -->
+<div id="filterContext" class="alert alert-info mb-4" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <i class="fas fa-filter me-2"></i>
+            <span id="filterContextText">Showing all memories</span>
+        </div>
+        <a href="/memories" class="btn btn-sm btn-outline-info">
+            <i class="fas fa-times me-1"></i>Clear Filter
+        </a>
+    </div>
+</div>
+
 <!-- Vector Search Bar - Moved to top -->
 <div class="card mb-4">
     <div class="card-body">
@@ -33,11 +46,11 @@
 </div>
 <div id="vectorSearchResults"></div>
 
-<!-- Page Size Selector -->
+<!-- Page Size Selector and Filters -->
 <div class="card mb-4">
     <div class="card-body">
         <div class="row align-items-center">
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <div class="d-flex align-items-center">
                     <label for="pageSize" class="form-label me-3 mb-0">Items per page:</label>
                     <select id="pageSize" class="form-select" style="width: auto;" onchange="changePageSize()">
@@ -48,7 +61,17 @@
                     </select>
                 </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+                <div class="d-flex align-items-center justify-content-center">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="showArchivedToggle" onchange="toggleShowArchived()">
+                        <label class="form-check-label archived-toggle-label" for="showArchivedToggle">
+                            <i class="fas fa-archive me-1"></i>Show Archived
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
                 <div class="text-end">
                     <span class="text-muted" id="memoryCount">Loading...</span>
                 </div>
@@ -77,9 +100,182 @@ let currentPage = 1;
 let currentPageSize = 20;
 let totalPages = 1;
 let isVectorSearch = false;
+let showArchived = false;
+
+// Filter state from URL params
+let currentFilter = {
+    workspaceId: null,
+    projectId: null,
+    unfiled: false
+};
+
+// Toggle archived memories display
+function toggleShowArchived() {
+    showArchived = document.getElementById('showArchivedToggle').checked;
+    currentPage = 1;
+
+    if (showArchived) {
+        loadArchivedMemories();
+    } else {
+        loadMemories();
+    }
+}
+
+// Load archived memories
+async function loadArchivedMemories() {
+    const listDiv = document.getElementById('memoryList');
+    listDiv.innerHTML = `
+        <div class="d-flex justify-content-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading archived memories...</span>
+            </div>
+        </div>`;
+
+    try {
+        let queryString = `page=${currentPage}&pageSize=${currentPageSize}`;
+        if (currentFilter.projectId) {
+            queryString += `&projectId=${currentFilter.projectId}`;
+        }
+
+        const response = await fetch(`/api/memory/archived?${queryString}`);
+        if (!response.ok) {
+            throw new Error('Failed to load archived memories');
+        }
+
+        const data = await response.json();
+        displayMemories(data.memories, true);
+        updatePagination(data.totalPages, data.page);
+        updateMemoryCount(data.totalCount, data.page, data.pageSize, true);
+    } catch (error) {
+        console.error('Error loading archived memories:', error);
+        listDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Error loading archived memories. Please try again.
+            </div>`;
+    }
+}
+
+// Parse URL parameters on load
+function parseUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    currentFilter.workspaceId = params.get('workspaceId');
+    currentFilter.projectId = params.get('projectId');
+    currentFilter.unfiled = params.get('unfiled') === 'true';
+
+    // Check for search query from sidebar
+    const searchQuery = params.get('q');
+    if (searchQuery) {
+        document.getElementById('vectorSearchQuery').value = searchQuery;
+        // Auto-trigger vector search
+        setTimeout(() => {
+            runVectorSearch(new Event('submit'));
+        }, 100);
+    }
+}
+
+// Build query string for API calls
+function buildFilterQueryString() {
+    const parts = [`page=${currentPage}`, `pageSize=${currentPageSize}`];
+    if (currentFilter.projectId) {
+        parts.push(`projectId=${currentFilter.projectId}`);
+    } else if (currentFilter.workspaceId) {
+        parts.push(`workspaceId=${currentFilter.workspaceId}`);
+    } else if (currentFilter.unfiled) {
+        parts.push(`unfiled=true`);
+    }
+    return parts.join('&');
+}
+
+// Update filter context banner
+async function updateFilterContext() {
+    const contextDiv = document.getElementById('filterContext');
+    const contextText = document.getElementById('filterContextText');
+
+    if (currentFilter.projectId) {
+        // Fetch project name from workspace tree API
+        try {
+            const treeResponse = await fetch('/api/workspace-tree');
+            const tree = await treeResponse.json();
+            const projectInfo = findProjectInTree(tree.workspaces, currentFilter.projectId);
+            if (projectInfo) {
+                contextText.innerHTML = `<strong>Project:</strong> ${escapeHtml(projectInfo.name)}`;
+            } else {
+                contextText.innerHTML = `<strong>Project:</strong> ${currentFilter.projectId}`;
+            }
+        } catch (e) {
+            contextText.innerHTML = `<strong>Project:</strong> ${currentFilter.projectId}`;
+        }
+        contextDiv.style.display = 'block';
+    } else if (currentFilter.workspaceId) {
+        try {
+            const treeResponse = await fetch('/api/workspace-tree');
+            const tree = await treeResponse.json();
+            const workspaceInfo = findWorkspaceInTree(tree.workspaces, currentFilter.workspaceId);
+            if (workspaceInfo) {
+                contextText.innerHTML = `<strong>Workspace:</strong> ${escapeHtml(workspaceInfo.name)}`;
+            } else {
+                contextText.innerHTML = `<strong>Workspace:</strong> ${currentFilter.workspaceId}`;
+            }
+        } catch (e) {
+            contextText.innerHTML = `<strong>Workspace:</strong> ${currentFilter.workspaceId}`;
+        }
+        contextDiv.style.display = 'block';
+    } else if (currentFilter.unfiled) {
+        contextText.innerHTML = `<strong>Unfiled Memories</strong> - not assigned to any workspace or project`;
+        contextDiv.style.display = 'block';
+    } else {
+        contextDiv.style.display = 'none';
+    }
+}
+
+// Helper to find workspace in tree
+function findWorkspaceInTree(workspaces, id) {
+    for (const ws of workspaces) {
+        if (ws.id === id) return ws;
+        if (ws.children) {
+            const found = findWorkspaceInTree(ws.children, id);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+// Helper to find project in tree
+function findProjectInTree(workspaces, id) {
+    for (const ws of workspaces) {
+        if (ws.projects) {
+            for (const proj of ws.projects) {
+                if (proj.id === id) return proj;
+                if (proj.children) {
+                    const found = findProjectInChildProjects(proj.children, id);
+                    if (found) return found;
+                }
+            }
+        }
+        if (ws.children) {
+            const found = findProjectInTree(ws.children, id);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function findProjectInChildProjects(projects, id) {
+    for (const proj of projects) {
+        if (proj.id === id) return proj;
+        if (proj.children) {
+            const found = findProjectInChildProjects(proj.children, id);
+            if (found) return found;
+        }
+    }
+    return null;
+}
 
 // Load memories on page load
 document.addEventListener('DOMContentLoaded', function() {
+    parseUrlParams();
+    updateFilterContext();
     loadMemories();
 });
 
@@ -98,12 +294,13 @@ function changePage(page) {
 
 async function loadMemories() {
     try {
-        const response = await fetch(`/api/memory?page=${currentPage}&pageSize=${currentPageSize}`);
+        const queryString = buildFilterQueryString();
+        const response = await fetch(`/api/memory?${queryString}`);
         const data = await response.json();
-        
-        displayMemories(data.memories);
+
+        displayMemories(data.memories, false);
         updatePagination(data);
-        updateMemoryCount(data);
+        updateMemoryCount(data.totalCount, data.page, data.pageSize, false);
     } catch (error) {
         console.error('Error loading memories:', error);
         document.getElementById('memoryList').innerHTML = `
@@ -115,43 +312,56 @@ async function loadMemories() {
     }
 }
 
-function displayMemories(memories) {
+function displayMemories(memories, isArchivedView = false) {
     const listElement = document.getElementById('memoryList');
-    
+
     if (memories.length === 0) {
+        const emptyMessage = isArchivedView
+            ? `<h5 class="text-muted">No archived memories found</h5>
+               <p class="text-muted">Archived memories will appear here.</p>`
+            : `<h5 class="text-muted">No memories found</h5>
+               <p class="text-muted">Start by creating your first memory.</p>
+               <a href="/create" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Create Memory</a>`;
+
         listElement.innerHTML = `
             <div class="text-center py-5">
-                <i class="fas fa-brain fa-3x text-muted mb-3"></i>
-                <h5 class="text-muted">No memories found</h5>
-                <p class="text-muted">Start by creating your first memory.</p>
-                <a href="/ui/create" class="btn btn-primary">                    <i class="fas fa-plus me-2"></i>                    Create Memory                </a>
+                <i class="fas fa-${isArchivedView ? 'archive' : 'brain'} fa-3x text-muted mb-3"></i>
+                ${emptyMessage}
             </div>
         `;
         return;
     }
-    
+
     let html = '<div class="row">';
-    
+
     memories.forEach(memory => {
         const tags = createTagBadges(memory.tags);
         const title = memory.title || 'Untitled Memory';
         const preview = truncateText(memory.text, 100) || 'No content';
-        
+        const isArchived = memory.archetype === 'archived';
+        const cardClass = isArchived ? 'memory-card archived' : 'memory-card';
+        const archivedBadge = isArchived
+            ? '<span class="badge badge-archived-indicator ms-1"><i class="fas fa-archive me-1"></i>ARCHIVED</span>'
+            : '';
+
         html += `
             <div class="col-md-6 col-lg-4 mb-4">
-                <div class="card memory-card h-100">
+                <div class="card ${cardClass} h-100">
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start mb-2">
                             <h6 class="card-title mb-0">${escapeHtml(title)}</h6>
-                            <span class="badge bg-primary">${escapeHtml(memory.type)}</span>
+                            <div>
+                                <span class="badge bg-primary">${escapeHtml(memory.type)}</span>
+                                ${archivedBadge}
+                            </div>
                         </div>
-                        
+
                         <p class="card-text text-muted small mb-2">${escapeHtml(preview)}</p>
-                        
+
                         <div class="mb-3">
                             ${tags}
                         </div>
-                        
+
                         <div class="d-flex justify-content-between align-items-center">
                             <small class="text-muted">
                                 <i class="fas fa-user me-1"></i>
@@ -162,7 +372,7 @@ function displayMemories(memories) {
                                 ${createConfidenceBadge(memory.confidence)}
                             </small>
                         </div>
-                        
+
                         <div class="mt-3">
                             <small class="text-muted">
                                 <i class="fas fa-clock me-1"></i>
@@ -172,11 +382,11 @@ function displayMemories(memories) {
                     </div>
                     <div class="card-footer bg-transparent">
                         <div class="btn-group w-100" role="group">
-                            <a href="/ui/view/${memory.id}" class="btn btn-outline-success btn-sm">
+                            <a href="/view/${memory.id}" class="btn btn-outline-success btn-sm">
                                 <i class="fas fa-eye me-1"></i>
                                 View
                             </a>
-                            <a href="/ui/edit/${memory.id}" class="btn btn-outline-primary btn-sm">
+                            <a href="/edit/${memory.id}" class="btn btn-outline-primary btn-sm">
                                 <i class="fas fa-edit me-1"></i>
                                 Edit
                             </a>
@@ -254,12 +464,13 @@ function updatePagination(data) {
     paginationElement.innerHTML = html;
 }
 
-function updateMemoryCount(data) {
-    const start = (data.page - 1) * data.pageSize + 1;
-    const end = Math.min(data.page * data.pageSize, data.totalCount);
-    
-    document.getElementById('memoryCount').textContent = 
-        `Showing ${start}-${end} of ${data.totalCount} memories`;
+function updateMemoryCount(totalCount, page, pageSize, isArchivedView = false) {
+    const start = (page - 1) * pageSize + 1;
+    const end = Math.min(page * pageSize, totalCount);
+    const label = isArchivedView ? 'archived memories' : 'memories';
+
+    document.getElementById('memoryCount').textContent =
+        `Showing ${start}-${end} of ${totalCount} ${label}`;
 }
 
 async function deleteMemory(id) {
@@ -316,7 +527,7 @@ function displayVectorSearchResults(results) {
         const tags = createTagBadges(memory.tags);
         const title = memory.title || 'Untitled Memory';
         const preview = truncateText(memory.text, 100) || 'No content';
-        const similarity = memory.similarity !== null && memory.similarity !== undefined ? (100 * (1 - memory.similarity)).toFixed(1) : 'N/A';
+        const similarity = memory.similarity !== null && memory.similarity !== undefined ? (100 * memory.similarity).toFixed(1) : 'N/A';
         // Related memories HTML
         let relatedHtml = '';
         if (memory.relationships && memory.relationships.length > 0) {
@@ -332,7 +543,7 @@ function displayVectorSearchResults(results) {
                             <i class='fas fa-arrow-right me-1'></i>
                             ${escapeHtml(relationshipType)}
                         </span>
-                        <a href='/ui/view/${rel.toMemoryId}' class='text-decoration-none'>
+                        <a href='/view/${rel.toMemoryId}' class='text-decoration-none'>
                             <i class='fas fa-link me-1'></i>${escapeHtml(relTitle)}
                         </a>
                         <span class='badge bg-light text-dark ms-1'>${escapeHtml(relType)}</span>
@@ -365,8 +576,8 @@ function displayVectorSearchResults(results) {
                     </div>
                     <div class='card-footer bg-transparent'>
                         <div class='btn-group w-100' role='group'>
-                            <a href='/ui/view/${memory.id}' class='btn btn-outline-success btn-sm'><i class='fas fa-eye me-1'></i>View</a>
-                            <a href='/ui/edit/${memory.id}' class='btn btn-outline-primary btn-sm'><i class='fas fa-edit me-1'></i>Edit</a>
+                            <a href='/view/${memory.id}' class='btn btn-outline-success btn-sm'><i class='fas fa-eye me-1'></i>View</a>
+                            <a href='/edit/${memory.id}' class='btn btn-outline-primary btn-sm'><i class='fas fa-edit me-1'></i>Edit</a>
                             <button class='btn btn-outline-danger btn-sm' onclick='deleteMemory("${memory.id}")'><i class='fas fa-trash me-1'></i>Delete</button>
                         </div>
                     </div>

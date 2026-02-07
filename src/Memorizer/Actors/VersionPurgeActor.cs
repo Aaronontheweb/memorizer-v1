@@ -2,6 +2,7 @@ using Akka.Actor;
 using Akka.Event;
 using Akka.Streams;
 using Memorizer.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Memorizer.Actors;
 
@@ -12,16 +13,19 @@ namespace Memorizer.Actors;
 /// </summary>
 public sealed class VersionPurgeActor : ReceiveActor
 {
-    private readonly IStorage _storage;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILoggingAdapter _logger;
     private readonly IMaterializer _materializer;
 
     // Progress manager - handles subscriber management and job state
     private ProgressJobManager? _jobManager;
 
-    public VersionPurgeActor(IStorage storage)
+    // Current scope for the running job
+    private IServiceScope? _currentScope;
+
+    public VersionPurgeActor(IServiceProvider serviceProvider)
     {
-        _storage = storage;
+        _serviceProvider = serviceProvider;
         _logger = Context.GetLogger();
         _materializer = Context.System.Materializer();
 
@@ -100,11 +104,15 @@ public sealed class VersionPurgeActor : ReceiveActor
 
         try
         {
+            // Create a scope for the duration of this job
+            _currentScope = _serviceProvider.CreateScope();
+            var storage = _currentScope.ServiceProvider.GetRequiredService<IStorage>();
+
             // Calculate cutoff date
             var cutoffDate = DateTime.UtcNow.AddDays(-message.DaysOld);
 
             // Get version stats to show how many will be affected
-            var stats = await _storage.GetVersionStats();
+            var stats = await storage.GetVersionStats();
 
             // Create job manager and start job
             // We'll track this as a single-item job since purge is atomic
@@ -129,7 +137,7 @@ public sealed class VersionPurgeActor : ReceiveActor
             // Execute the purge operation
             _logger.Info("Purging versions older than {0} (cutoff: {1})", message.DaysOld, cutoffDate);
 
-            var purgedCount = await _storage.PurgeVersionsOlderThan(cutoffDate);
+            var purgedCount = await storage.PurgeVersionsOlderThan(cutoffDate);
 
             _logger.Info("Successfully purged {0} versions", purgedCount);
 
@@ -159,6 +167,8 @@ public sealed class VersionPurgeActor : ReceiveActor
             ));
             _jobManager?.Fail(ex.Message);
             _jobManager = null;
+            _currentScope?.Dispose();
+            _currentScope = null;
             Become(Idle);
         }
     }
@@ -177,6 +187,10 @@ public sealed class VersionPurgeActor : ReceiveActor
         // Complete the job - this broadcasts final event and auto-completes all subscriber streams
         _jobManager?.Complete();
         _jobManager = null;
+
+        // Dispose the scope
+        _currentScope?.Dispose();
+        _currentScope = null;
 
         Become(Idle);
     }
@@ -210,8 +224,4 @@ public sealed class VersionPurgeActor : ReceiveActor
         ));
     }
 
-    public static Props Props(IStorage storage)
-    {
-        return Akka.Actor.Props.Create(() => new VersionPurgeActor(storage));
-    }
 }

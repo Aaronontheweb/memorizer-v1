@@ -8,13 +8,14 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link id="prism-theme" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
     <!-- Theme variables must come before other custom CSS -->
-    <link href="~/css/theme-variables.css" rel="stylesheet">
-    <link href="~/css/site.css" rel="stylesheet">
-    <link href="~/css/markdown-content.css" rel="stylesheet">
-    <link href="~/css/tools.css" rel="stylesheet">
+    <link href="~/css/theme-variables.css" rel="stylesheet" asp-append-version="true">
+    <link href="~/css/site.css" rel="stylesheet" asp-append-version="true">
+    <link href="~/css/markdown-content.css" rel="stylesheet" asp-append-version="true">
+    <link href="~/css/tools.css" rel="stylesheet" asp-append-version="true">
+    <link href="~/css/workspace-tree.css" rel="stylesheet" asp-append-version="true">
     @await RenderSectionAsync("Styles", required: false)
     <!-- Theme switcher in head to prevent flash of unstyled content -->
-    <script src="~/js/theme-switcher.js"></script>
+    <script src="~/js/theme-switcher.js" asp-append-version="true"></script>
 </head>
 <body>
     <div class="container-fluid">
@@ -22,61 +23,86 @@
             <!-- Sidebar -->
             <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
                 <div class="position-sticky pt-3">
-                    <div class="text-center mb-4">
+                    <div class="text-center mb-3">
                         <h4 class="text-white">
                             <i class="fas fa-brain me-2"></i>
                             Memorizer
                         </h4>
-                        <p class="text-white-50 small">Memory Management System</p>
+                        <p class="text-white-50 small mb-0">Memory Management System</p>
                     </div>
 
-                    <ul class="nav flex-column">
-                        <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Index" ? "active" : "")"
-                               asp-controller="Home" asp-action="Index">
-                                <i class="fas fa-list me-2"></i>
-                                All Memories
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Create" ? "active" : "")"
-                               asp-controller="Home" asp-action="Create">
-                                <i class="fas fa-plus me-2"></i>
-                                Create Memory
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["controller"]?.ToString() == "Tools" ? "active" : "")"
-                               asp-controller="Tools" asp-action="Index">
-                                <i class="fas fa-tools me-2"></i>
-                                Tools
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Stats" ? "active" : "")"
-                               asp-controller="Home" asp-action="Stats">
-                                <i class="fas fa-chart-bar me-2"></i>
-                                Statistics
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "McpConfig" ? "active" : "")"
-                               asp-controller="Home" asp-action="McpConfig">
-                                <i class="fas fa-cog me-2"></i>
-                                MCP Config
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link @(ViewContext.RouteData.Values["action"]?.ToString() == "Config" ? "active" : "")"
-                               asp-controller="Home" asp-action="Config">
-                                <i class="fas fa-cogs me-2"></i>
-                                System Config
-                            </a>
-                        </li>
-                    </ul>
+                    <!-- Search Bar -->
+                    <div class="px-3 mb-2">
+                        <form action="/memories" method="get" class="d-flex">
+                            <div class="input-group input-group-sm">
+                                <input type="text" name="q" class="form-control sidebar-search-input"
+                                       placeholder="Search memories..." aria-label="Search memories">
+                                <button class="btn sidebar-search-btn" type="submit">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Primary Actions -->
+                    <div class="d-flex gap-2 px-3 mb-3">
+                        <a class="btn btn-sm btn-outline-light flex-grow-1"
+                           asp-controller="Home" asp-action="Memories">
+                            <i class="fas fa-clock me-1"></i>
+                            Recent
+                        </a>
+                        <a class="btn btn-sm btn-outline-light flex-grow-1"
+                           asp-controller="Home" asp-action="Create">
+                            <i class="fas fa-plus me-1"></i>
+                            New
+                        </a>
+                        <!-- Settings Dropdown -->
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button"
+                                    data-bs-toggle="dropdown" aria-expanded="false"
+                                    title="Settings & Tools">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <a class="dropdown-item" asp-controller="Tools" asp-action="Index">
+                                        <i class="fas fa-tools me-2"></i>Tools
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" asp-controller="Home" asp-action="Stats">
+                                        <i class="fas fa-chart-bar me-2"></i>Statistics
+                                    </a>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <a class="dropdown-item" asp-controller="Home" asp-action="McpConfig">
+                                        <i class="fas fa-cog me-2"></i>MCP Config
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" asp-controller="Home" asp-action="Config">
+                                        <i class="fas fa-cogs me-2"></i>System Config
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" asp-controller="Settings" asp-action="Providers">
+                                        <i class="fas fa-plug me-2"></i>LLM Config
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <hr class="my-2" style="border-color: var(--sidebar-divider);">
+
+                    <!-- Workspace/Project Tree Navigation (Primary) -->
+                    @await Html.PartialAsync("_WorkspaceTree")
+
+                    <hr class="my-3" style="border-color: var(--sidebar-divider);">
 
                     <!-- Theme Toggle -->
-                    <div class="d-flex justify-content-center align-items-center my-3">
+                    <div class="d-flex justify-content-center align-items-center mb-3">
                         <i class="fas fa-sun text-white-50 me-2"></i>
                         <div class="form-check form-switch mb-0">
                             <input class="form-check-input" type="checkbox" role="switch"
@@ -84,8 +110,6 @@
                         </div>
                         <i class="fas fa-moon text-white-50 ms-1"></i>
                     </div>
-
-                    <hr class="my-4" style="border-color: var(--sidebar-divider);">
 
                     <div class="text-center">
                         <small class="text-white-50">
@@ -127,11 +151,47 @@
         </div>
     </div>
 
+    <!-- Create Workspace Modal (from sidebar) -->
+    <div class="modal fade" id="createWorkspaceFromSidebarModal" tabindex="-1" aria-labelledby="createWorkspaceFromSidebarModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createWorkspaceFromSidebarModalLabel">
+                        <i class="fas fa-folder-plus me-2"></i>
+                        Create Workspace
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createWorkspaceFromSidebarForm" onsubmit="event.preventDefault(); WorkspaceTree.createWorkspace();">
+                        <div class="mb-3">
+                            <label for="sidebarWorkspaceName" class="form-label">Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="sidebarWorkspaceName" placeholder="e.g., Engineering, Marketing" required>
+                            <div class="form-text">A unique name for your workspace</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="sidebarWorkspaceDescription" class="form-label">Description</label>
+                            <textarea class="form-control" id="sidebarWorkspaceDescription" rows="3" placeholder="Optional description of this workspace's purpose"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="sidebarCreateWorkspaceBtn" onclick="WorkspaceTree.createWorkspace()">
+                        <i class="fas fa-plus me-2"></i>
+                        Create Workspace
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-    <script src="~/js/memory-utils.js"></script>
-    <script src="~/js/progress-stream.js"></script>
+    <script src="~/js/memory-utils.js" asp-append-version="true"></script>
+    <script src="~/js/progress-stream.js" asp-append-version="true"></script>
+    <script src="~/js/workspace-tree.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
