@@ -140,6 +140,18 @@ public interface IStorage
         CancellationToken cancellationToken = default
     );
 
+    Task<List<Memorizer.Models.Memory>> HybridSearch(
+        string query,
+        int limit = 10,
+        SimilarityScore? minSimilarity = null,
+        string[]? filterTags = null,
+        ProjectId? projectId = null,
+        bool includeUnassigned = false,
+        bool includeArchived = false,
+        bool includeSystem = false,
+        CancellationToken cancellationToken = default
+    );
+
     // Versioning support
     Task<List<MemoryEvent>> GetEvents(MemoryId memoryId, int? limit = null, CancellationToken cancellationToken = default);
     Task<List<MemoryVersion>> GetVersionHistory(MemoryId memoryId, int? limit = null, CancellationToken cancellationToken = default);
@@ -1389,6 +1401,218 @@ public class Storage : IStorage
         var fullEmbeddingResults = await SearchWithFullEmbedding(query, limit, minSimilarity, filterTags, includeArchived: false, cancellationToken);
         var metadataEmbeddingResults = await SearchWithMetadataEmbedding(query, limit, minSimilarity, filterTags, projectId: null, includeUnassigned: false, includeArchived: false, includeSystem: false, cancellationToken);
         return (fullEmbeddingResults, metadataEmbeddingResults);
+    }
+
+    private static string BuildOwnerFilter(ProjectId? projectId, bool includeUnassigned)
+    {
+        if (!projectId.HasValue) return "";
+
+        if (includeUnassigned)
+        {
+            return @"AND ((owner_type = 1 AND owner_id = @projectId)
+                   OR (owner_type = 0 AND owner_id = '00000000-0000-0000-0000-000000000000'))";
+        }
+
+        return "AND owner_type = 1 AND owner_id = @projectId";
+    }
+
+    private static string BuildArchetypeFilter(bool includeArchived, bool includeSystem)
+    {
+        return (includeArchived, includeSystem) switch
+        {
+            (false, false) => "AND archetype IN (0, 1)",
+            (true, false) => "AND archetype IN (0, 1, 2)",
+            (false, true) => "AND archetype IN (0, 1, 3)",
+            (true, true) => ""
+        };
+    }
+
+    /// <summary>
+    /// Builds a tsquery string using AND with prefix matching for each term.
+    /// This handles stemming mismatches (e.g., "postgres" matching "postgresql")
+    /// while keeping AND semantics so all terms must be present.
+    /// </summary>
+    private static string BuildPrefixTsQuery(string query)
+    {
+        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => new string(t.Where(c => char.IsLetterOrDigit(c) || c == '-').ToArray()))
+            .Where(t => t.Length > 1)
+            .ToArray();
+
+        if (terms.Length == 0)
+            return query; // fallback to raw query
+
+        return string.Join(" & ", terms.Select(t => $"{t}:*"));
+    }
+
+    public async Task<List<Memorizer.Models.Memory>> HybridSearch(
+        string query,
+        int limit = 10,
+        SimilarityScore? minSimilarity = null,
+        string[]? filterTags = null,
+        ProjectId? projectId = null,
+        bool includeUnassigned = false,
+        bool includeArchived = false,
+        bool includeSystem = false,
+        CancellationToken cancellationToken = default
+    )
+    {
+        // Generate embedding for the query
+        float[] queryEmbedding = await _embeddingService.Generate(query, cancellationToken);
+
+        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        int fetchLimit = Math.Max(limit * 3, 30);
+        string ownerFilter = BuildOwnerFilter(projectId, includeUnassigned);
+        string archetypeFilter = BuildArchetypeFilter(includeArchived, includeSystem);
+
+        // Leg 1: Vector search (metadata embedding, no hard distance threshold)
+        string vectorSql = $@"
+            SELECT id, type_legacy, content, text, source, embedding, embedding_metadata,
+                   tags, confidence, created_at, updated_at, title, current_version,
+                   owner_type, owner_id, archetype,
+                   embedding_metadata <=> @embedding AS similarity
+            FROM memories
+            WHERE embedding_metadata IS NOT NULL
+            {ownerFilter}
+            {archetypeFilter}
+            ORDER BY embedding_metadata <=> @embedding
+            LIMIT @fetchLimit";
+
+        var vectorResults = new List<(Memorizer.Models.Memory Memory, double Distance)>();
+        await using (var cmd = new NpgsqlCommand(vectorSql, connection))
+        {
+            cmd.Parameters.AddWithValue("embedding", new Vector(queryEmbedding));
+            cmd.Parameters.AddWithValue("fetchLimit", fetchLimit);
+            if (projectId.HasValue)
+                cmd.Parameters.AddWithValue("projectId", projectId.Value.Value);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var memory = ReadMemoryFromReader(reader, withSimilarity: false);
+                var distance = reader.GetDouble(16);
+                vectorResults.Add((memory, distance));
+            }
+        }
+
+        // Leg 2: Full-text search (AND with prefix matching for better stemming coverage)
+        string tsquery = BuildPrefixTsQuery(query);
+        string ftsSql = $@"
+            SELECT id, type_legacy, content, text, source, embedding, embedding_metadata,
+                   tags, confidence, created_at, updated_at, title, current_version,
+                   owner_type, owner_id, archetype,
+                   ts_rank_cd(search_vector, to_tsquery('english', @tsquery)) AS fts_rank
+            FROM memories
+            WHERE search_vector @@ to_tsquery('english', @tsquery)
+            {ownerFilter}
+            {archetypeFilter}
+            ORDER BY fts_rank DESC
+            LIMIT @fetchLimit";
+
+        var ftsResults = new List<(Memorizer.Models.Memory Memory, double FtsRank)>();
+        await using (var cmd = new NpgsqlCommand(ftsSql, connection))
+        {
+            cmd.Parameters.AddWithValue("tsquery", tsquery);
+            cmd.Parameters.AddWithValue("fetchLimit", fetchLimit);
+            if (projectId.HasValue)
+                cmd.Parameters.AddWithValue("projectId", projectId.Value.Value);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var memory = ReadMemoryFromReader(reader, withSimilarity: false);
+                var ftsRank = reader.GetDouble(16);
+                ftsResults.Add((memory, ftsRank));
+            }
+        }
+
+        // RRF Fusion (k=60)
+        const int k = 60;
+
+        // Adaptive weighting: short queries favor FTS, longer queries weight equally
+        int wordCount = query.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        double ftsWeight = wordCount <= 2 ? 1.5 : 1.0;
+        double vectorWeight = 1.0;
+
+        var rrfScores = new Dictionary<MemoryId, (double Score, Memorizer.Models.Memory Memory)>();
+
+        // Score vector results
+        for (int i = 0; i < vectorResults.Count; i++)
+        {
+            var (memory, _) = vectorResults[i];
+            int rank = i + 1; // 1-based rank
+            double score = vectorWeight / (k + rank);
+            rrfScores[memory.Id] = (score, memory);
+        }
+
+        // Score FTS results and merge
+        for (int i = 0; i < ftsResults.Count; i++)
+        {
+            var (memory, _) = ftsResults[i];
+            int rank = i + 1;
+            double score = ftsWeight / (k + rank);
+
+            if (rrfScores.TryGetValue(memory.Id, out var existing))
+            {
+                rrfScores[memory.Id] = (existing.Score + score, existing.Memory);
+            }
+            else
+            {
+                rrfScores[memory.Id] = (score, memory);
+            }
+        }
+
+        // Tag normalization and boosting
+        static string NormalizeTag(string tag) => tag.Trim().ToLowerInvariant();
+        var normalizedFilterTags = filterTags?.Select(NormalizeTag).ToHashSet() ?? new HashSet<string>();
+        const double tagBoostFactor = 1.1; // 10% boost for tag match
+
+        var ranked = rrfScores.Values
+            .Select(entry =>
+            {
+                double score = entry.Score;
+                if (normalizedFilterTags.Count > 0 && entry.Memory.Tags != null)
+                {
+                    bool tagMatch = entry.Memory.Tags.Select(NormalizeTag).Any(t => normalizedFilterTags.Contains(t));
+                    if (tagMatch) score *= tagBoostFactor;
+                }
+                return (entry.Memory, Score: score);
+            })
+            .OrderByDescending(x => x.Score)
+            .Take(limit)
+            .ToList();
+
+        // Set similarity scores on the final results from vector leg distances
+        var vectorDistanceLookup = vectorResults.ToDictionary(v => v.Memory.Id, v => v.Distance);
+        var memories = new List<Memorizer.Models.Memory>();
+        var memoryIds = new List<MemoryId>();
+
+        foreach (var (memory, _) in ranked)
+        {
+            if (vectorDistanceLookup.TryGetValue(memory.Id, out var distance))
+            {
+                memory.Similarity = SimilarityScore.FromDistance(distance);
+            }
+            memories.Add(memory);
+            memoryIds.Add(memory.Id);
+        }
+
+        // Batch fetch relationships for all found memories
+        if (memoryIds.Count > 0)
+        {
+            var relationships = await GetRelationshipsForMany(memoryIds, cancellationToken);
+            var relLookup = relationships.GroupBy(r => r.FromMemoryId).ToDictionary(g => g.Key, g => g.ToList());
+            foreach (var memory in memories)
+            {
+                if (relLookup.TryGetValue(memory.Id, out var rels))
+                    memory.Relationships = rels;
+                else
+                    memory.Relationships = new List<MemoryRelationship>();
+            }
+        }
+
+        return memories;
     }
 
     // Metadata embedding support
@@ -2762,7 +2986,7 @@ public class Storage : IStorage
     }
 
     /// <summary>
-    /// Searches for projects using semantic search on system memories.
+    /// Searches for projects using hybrid search (vector + FTS) on system memories.
     /// Returns project IDs that match the query.
     /// </summary>
     private async Task<List<(ProjectId Id, double Similarity)>> SearchProjectsBySystemMemoryAsync(
@@ -2771,35 +2995,14 @@ public class Storage : IStorage
         double minSimilarity = 0.5,
         CancellationToken cancellationToken = default)
     {
-        // Generate embedding for the query
-        float[] queryEmbedding = await _embeddingService.Generate(query, cancellationToken);
-
-        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-        // Extract the project ID from the tags (format: "project:{guid}")
-        await using var cmd = new NpgsqlCommand(@"
-            SELECT tags, embedding_metadata <=> @embedding AS distance
-            FROM memories
-            WHERE archetype = 3
-            AND type_legacy = @type
-            AND embedding_metadata <=> @embedding < @maxDistance
-            ORDER BY embedding_metadata <=> @embedding
-            LIMIT @limit", conn);
-
-        cmd.Parameters.AddWithValue("embedding", new Vector(queryEmbedding));
-        cmd.Parameters.AddWithValue("type", ProjectSystemMemoryType);
-        cmd.Parameters.AddWithValue("maxDistance", 1.0 - minSimilarity);
-        cmd.Parameters.AddWithValue("limit", limit);
+        var taggedResults = await HybridSearchSystemMemories(query, ProjectSystemMemoryType, limit, cancellationToken);
 
         var results = new List<(ProjectId, double)>();
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-
-        while (await reader.ReadAsync(cancellationToken))
+        foreach (var (tags, similarity, hadFtsMatch) in taggedResults)
         {
-            var tags = reader.GetFieldValue<string[]>(0);
-            var distance = reader.GetDouble(1);
-            var similarity = 1.0 - distance;
+            // Keep FTS matches (textually relevant); filter vector-only matches by similarity
+            if (!hadFtsMatch && similarity < minSimilarity) continue;
 
-            // Find the project tag and extract the ID
             var projectTag = tags.FirstOrDefault(t => t.StartsWith("project:"));
             if (projectTag != null && Guid.TryParse(projectTag.Substring("project:".Length), out var projectGuid))
             {
@@ -2890,7 +3093,116 @@ public class Storage : IStorage
         => DeleteSystemMemoryByTagAsync($"workspace:{workspaceId.Value}", WorkspaceSystemMemoryType, cancellationToken);
 
     /// <summary>
-    /// Searches for workspaces using semantic search on system memories.
+    /// Shared hybrid search for system memories (projects, workspaces).
+    /// Combines vector search + FTS with RRF fusion, returning tags and similarity for each match.
+    /// </summary>
+    private async Task<List<(string[] Tags, double Similarity, bool HadFtsMatch)>> HybridSearchSystemMemories(
+        string query,
+        string systemMemoryType,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        float[] queryEmbedding = await _embeddingService.Generate(query, cancellationToken);
+
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        int fetchLimit = Math.Max(limit * 2, 20);
+
+        // Leg 1: Vector search (no hard threshold)
+        var vectorResults = new List<(string[] Tags, double Distance, int Rank)>();
+        await using (var cmd = new NpgsqlCommand(@"
+            SELECT tags, embedding_metadata <=> @embedding AS distance
+            FROM memories
+            WHERE archetype = 3
+            AND type_legacy = @type
+            AND embedding_metadata IS NOT NULL
+            ORDER BY embedding_metadata <=> @embedding
+            LIMIT @fetchLimit", conn))
+        {
+            cmd.Parameters.AddWithValue("embedding", new Vector(queryEmbedding));
+            cmd.Parameters.AddWithValue("type", systemMemoryType);
+            cmd.Parameters.AddWithValue("fetchLimit", fetchLimit);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            int rank = 1;
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var tags = reader.GetFieldValue<string[]>(0);
+                var distance = reader.GetDouble(1);
+                vectorResults.Add((tags, distance, rank++));
+            }
+        }
+
+        // Leg 2: Full-text search (AND with prefix matching)
+        string tsquery = BuildPrefixTsQuery(query);
+        var ftsResults = new List<(string[] Tags, double FtsRank, int Rank)>();
+        await using (var cmd = new NpgsqlCommand(@"
+            SELECT tags, ts_rank_cd(search_vector, to_tsquery('english', @tsquery)) AS fts_rank
+            FROM memories
+            WHERE archetype = 3
+            AND type_legacy = @type
+            AND search_vector @@ to_tsquery('english', @tsquery)
+            ORDER BY fts_rank DESC
+            LIMIT @fetchLimit", conn))
+        {
+            cmd.Parameters.AddWithValue("tsquery", tsquery);
+            cmd.Parameters.AddWithValue("type", systemMemoryType);
+            cmd.Parameters.AddWithValue("fetchLimit", fetchLimit);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            int rank = 1;
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var tags = reader.GetFieldValue<string[]>(0);
+                var ftsRank = reader.GetDouble(1);
+                ftsResults.Add((tags, ftsRank, rank++));
+            }
+        }
+
+        // RRF fusion (k=60), adaptive weighting
+        const int k = 60;
+        int wordCount = query.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        double ftsWeight = wordCount <= 2 ? 1.5 : 1.0;
+        double vectorWeight = 1.0;
+
+        // Use a stable key to identify entries — the entity tag (project:{guid} or workspace:{guid})
+        string? EntityKey(string[] tags) => tags.FirstOrDefault(t => t.StartsWith("project:") || t.StartsWith("workspace:"));
+
+        var rrfScores = new Dictionary<string, (double Score, string[] Tags, double Distance, bool HadFtsMatch)>();
+
+        foreach (var (tags, distance, rank) in vectorResults)
+        {
+            var key = EntityKey(tags);
+            if (key == null) continue;
+            double score = vectorWeight / (k + rank);
+            rrfScores[key] = (score, tags, distance, false);
+        }
+
+        foreach (var (tags, _, rank) in ftsResults)
+        {
+            var key = EntityKey(tags);
+            if (key == null) continue;
+            double score = ftsWeight / (k + rank);
+
+            if (rrfScores.TryGetValue(key, out var existing))
+            {
+                rrfScores[key] = (existing.Score + score, existing.Tags, existing.Distance, true);
+            }
+            else
+            {
+                rrfScores[key] = (score, tags, 1.0, true); // distance=1.0 (no vector match)
+            }
+        }
+
+        return rrfScores.Values
+            .OrderByDescending(x => x.Score)
+            .Take(limit)
+            .Select(x => (x.Tags, 1.0 - x.Distance, x.HadFtsMatch)) // convert distance to similarity
+            .ToList();
+    }
+
+    /// <summary>
+    /// Searches for workspaces using hybrid search (vector + FTS) on system memories.
     /// Returns workspace IDs that match the query.
     /// </summary>
     private async Task<List<(WorkspaceId Id, double Similarity)>> SearchWorkspacesBySystemMemoryAsync(
@@ -2899,35 +3211,14 @@ public class Storage : IStorage
         double minSimilarity = 0.5,
         CancellationToken cancellationToken = default)
     {
-        // Generate embedding for the query
-        float[] queryEmbedding = await _embeddingService.Generate(query, cancellationToken);
-
-        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
-        // Extract the workspace ID from the tags (format: "workspace:{guid}")
-        await using var cmd = new NpgsqlCommand(@"
-            SELECT tags, embedding_metadata <=> @embedding AS distance
-            FROM memories
-            WHERE archetype = 3
-            AND type_legacy = @type
-            AND embedding_metadata <=> @embedding < @maxDistance
-            ORDER BY embedding_metadata <=> @embedding
-            LIMIT @limit", conn);
-
-        cmd.Parameters.AddWithValue("embedding", new Vector(queryEmbedding));
-        cmd.Parameters.AddWithValue("type", WorkspaceSystemMemoryType);
-        cmd.Parameters.AddWithValue("maxDistance", 1.0 - minSimilarity);
-        cmd.Parameters.AddWithValue("limit", limit);
+        var taggedResults = await HybridSearchSystemMemories(query, WorkspaceSystemMemoryType, limit, cancellationToken);
 
         var results = new List<(WorkspaceId, double)>();
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-
-        while (await reader.ReadAsync(cancellationToken))
+        foreach (var (tags, similarity, hadFtsMatch) in taggedResults)
         {
-            var tags = reader.GetFieldValue<string[]>(0);
-            var distance = reader.GetDouble(1);
-            var similarity = 1.0 - distance;
+            // Keep FTS matches (textually relevant); filter vector-only matches by similarity
+            if (!hadFtsMatch && similarity < minSimilarity) continue;
 
-            // Find the workspace tag and extract the ID
             var workspaceTag = tags.FirstOrDefault(t => t.StartsWith("workspace:"));
             if (workspaceTag != null && Guid.TryParse(workspaceTag.Substring("workspace:".Length), out var workspaceGuid))
             {
