@@ -1,3 +1,15 @@
+#### 2.2.0 July 3rd 2026 ####
+
+**Features**
+- [Support get_workspace by slug](https://github.com/petabridge/memorizer/pull/199) - The `GetWorkspace` MCP tool now accepts workspace slugs in addition to IDs
+  - Enables workspace lookup without needing to know the workspace ID in advance
+  - Slug matching is case-insensitive
+
+**Bug Fixes**
+- [Make MCP tools resilient to missing required parameters](https://github.com/petabridge/memorizer/pull/184) - MCP tools now return descriptive error messages when required parameters are missing or malformed, instead of throwing unhandled exceptions
+  - Fixes compatibility with MCP clients (Claude Code, opencode) that may omit required parameters
+  - Affected tools: `Store`, `Edit`, `CreateReference`, `MoveMemory`
+
 #### 2.2.0-beta2 July 1st 2026 ####
 
 **Features**
