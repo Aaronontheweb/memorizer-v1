@@ -3,15 +3,19 @@
     <Copyright>© $([System.DateTime]::Now.Year)</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/petabridge/memorizer-v1</PackageProjectUrl>
-    <VersionPrefix>2.2.0-beta2</VersionPrefix>
+    <VersionPrefix>2.2.0</VersionPrefix>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
     <Deterministic>true</Deterministic>
     <PackageReleaseNotes>**Features**
-- [Add workspace scope to memory tools](https://github.com/petabridge/memorizer/pull/197) - Memory search and storage now support workspace-level scoping
-  - `SearchMemories` can filter by workspace ID to query all memories in a workspace in a single call
-  - `Store` supports assigning memories directly to workspaces (not just projects)
-  - Closes scoping gaps for agents operating at the workspace level</PackageReleaseNotes>
+- [Support get_workspace by slug](https://github.com/petabridge/memorizer/pull/199) - The `GetWorkspace` MCP tool now accepts workspace slugs in addition to IDs
+  - Enables workspace lookup without needing to know the workspace ID in advance
+  - Slug matching is case-insensitive
+
+**Bug Fixes**
+- [Make MCP tools resilient to missing required parameters](https://github.com/petabridge/memorizer/pull/184) - MCP tools now return descriptive error messages when required parameters are missing or malformed, instead of throwing unhandled exceptions
+  - Fixes compatibility with MCP clients (Claude Code, opencode) that may omit required parameters
+  - Affected tools: `Store`, `Edit`, `CreateReference`, `MoveMemory`</PackageReleaseNotes>
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 </Project>
