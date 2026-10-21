@@ -8,7 +8,7 @@ namespace Memorizer.Services;
 
 /// <summary>
 /// Sends embedding requests to the configured provider and normalises the response
-/// to a <c>float[]</c>. Supports Ollama's native <c>/api/embeddings</c> shape and the
+/// to a <c>float[]</c>. Supports Ollama's native <c>/api/embed</c> shape and the
 /// OpenAI-compatible <c>/v1/embeddings</c> shape (also exposed by LiteLLM, vLLM, Azure
 /// OpenAI, LocalAI, etc.).
 /// </summary>
@@ -52,19 +52,26 @@ public sealed class EmbeddingApiClient : IEmbeddingApiClient
 
     private async Task<float[]> GenerateOllamaAsync(string model, string text, CancellationToken cancellationToken)
     {
-        var request = new EmbeddingRequest { Model = model, Prompt = text };
+        // /api/embed rather than the legacy /api/embeddings: the legacy endpoint rejects
+        // input longer than the model's context window ("the input length exceeds the
+        // context length"), which made storing any long memory fail with small-context
+        // models such as all-minilm (256 tokens). /api/embed truncates instead. Both
+        // return the same direction (it is L2-normalised), and similarity search uses
+        // cosine distance, so existing stored embeddings stay compatible.
+        var request = new EmbeddingRequest { Model = model, Input = text };
 
         _logger.LogDebug("Sending Ollama embedding request to {ApiUrl}", Settings.ApiUrl);
-        var response = await _httpClient.PostAsJsonAsync("api/embeddings", request, cancellationToken);
+        var response = await _httpClient.PostAsJsonAsync("api/embed", request, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
 
         var result = await response.Content.ReadFromJsonAsync<EmbeddingResponse>(cancellationToken: cancellationToken);
-        if (result?.Embedding is null || result.Embedding.Length == 0)
+        var first = result?.Embeddings.FirstOrDefault();
+        if (first is null || first.Length == 0)
         {
             throw new InvalidOperationException("Empty embedding response from Ollama API");
         }
 
-        return result.Embedding;
+        return first;
     }
 
     private async Task<float[]> GenerateOpenAIAsync(string model, string text, CancellationToken cancellationToken)

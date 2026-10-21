@@ -16,12 +16,18 @@ Memorizer uses these embeddings for:
 Memorizer works with any embedding API that follows the Ollama embedding format:
 
 ```
-POST /api/embeddings
+POST /api/embed
 {
   "model": "model-name",
-  "prompt": "text to embed"
+  "input": "text to embed",
+  "truncate": true
 }
 ```
+
+Input longer than the model's context window is truncated to fit rather than
+rejected, so long memories still get an embedding; only the first part of the text
+(256 tokens for `all-minilm`) contributes to it. If long memories matter for search,
+choose a model with a larger context window.
 
 ### Ollama (Recommended for Local)
 
@@ -35,9 +41,9 @@ curl -fsSL https://ollama.ai/install.sh | sh
 ollama pull all-minilm
 
 # Verify it's working
-curl http://localhost:11434/api/embeddings -d '{
+curl http://localhost:11434/api/embed -d '{
   "model": "all-minilm",
-  "prompt": "test"
+  "input": "test"
 }'
 ```
 

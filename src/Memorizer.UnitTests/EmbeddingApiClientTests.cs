@@ -12,11 +12,11 @@ namespace Memorizer.UnitTests;
 public class EmbeddingApiClientTests
 {
     [Fact]
-    public async Task GenerateAsync_OllamaProvider_PostsToApiEmbeddings_WithModelAndPrompt()
+    public async Task GenerateAsync_OllamaProvider_PostsToApiEmbed_WithModelInputAndTruncate()
     {
         var handler = new RecordingHandler(JsonSerializer.Serialize(new
         {
-            embedding = new float[] { 0.1f, 0.2f, 0.3f }
+            embeddings = new[] { new float[] { 0.1f, 0.2f, 0.3f } }
         }));
 
         var client = CreateClient(handler, new EmbeddingSettings
@@ -30,13 +30,34 @@ public class EmbeddingApiClientTests
 
         Assert.Equal([0.1f, 0.2f, 0.3f], result);
         Assert.NotNull(handler.LastRequest);
-        Assert.Equal("/api/embeddings", handler.LastRequest!.RequestUri!.AbsolutePath);
+        Assert.Equal("/api/embed", handler.LastRequest!.RequestUri!.AbsolutePath);
 
         var body = JsonDocument.Parse(handler.LastRequestBody!);
         Assert.Equal("all-minilm", body.RootElement.GetProperty("model").GetString());
-        Assert.Equal("hello world", body.RootElement.GetProperty("prompt").GetString());
-        Assert.False(body.RootElement.TryGetProperty("input", out _));
+        Assert.Equal("hello world", body.RootElement.GetProperty("input").GetString());
+        Assert.True(body.RootElement.GetProperty("truncate").GetBoolean());
+        Assert.False(body.RootElement.TryGetProperty("prompt", out _));
         Assert.Null(handler.LastRequest.Headers.Authorization);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_OllamaProvider_ErrorStatus_ThrowsWithServerMessage()
+    {
+        var handler = new RecordingHandler(
+            "{\"error\":\"model 'missing' not found\"}",
+            HttpStatusCode.NotFound);
+
+        var client = CreateClient(handler, new EmbeddingSettings
+        {
+            Provider = ProviderNames.Ollama,
+            ApiUrl = new Uri("http://embed.local"),
+            Model = "missing"
+        });
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.GenerateAsync("missing", "t"));
+
+        Assert.Equal(HttpStatusCode.NotFound, ex.StatusCode);
+        Assert.Contains("model 'missing' not found", ex.Message);
     }
 
     [Fact]
@@ -100,7 +121,7 @@ public class EmbeddingApiClientTests
     {
         var handler = new RecordingHandler(JsonSerializer.Serialize(new
         {
-            embedding = new float[] { 0.1f, 0.2f, 0.3f }
+            embeddings = new[] { new float[] { 0.1f, 0.2f, 0.3f } }
         }));
 
         var client = CreateClient(handler, new EmbeddingSettings
@@ -139,7 +160,7 @@ public class EmbeddingApiClientTests
     [Fact]
     public async Task GenerateAsync_OllamaProvider_EmptyResponse_Throws()
     {
-        var handler = new RecordingHandler(JsonSerializer.Serialize(new { embedding = Array.Empty<float>() }));
+        var handler = new RecordingHandler(JsonSerializer.Serialize(new { embeddings = Array.Empty<float[]>() }));
 
         var client = CreateClient(handler, new EmbeddingSettings
         {
@@ -176,10 +197,12 @@ public class EmbeddingApiClientTests
     private sealed class RecordingHandler : HttpMessageHandler
     {
         private readonly string _responseBody;
+        private readonly HttpStatusCode _statusCode;
 
-        public RecordingHandler(string responseBody)
+        public RecordingHandler(string responseBody, HttpStatusCode statusCode = HttpStatusCode.OK)
         {
             _responseBody = responseBody;
+            _statusCode = statusCode;
         }
 
         public HttpRequestMessage? LastRequest { get; private set; }
@@ -194,7 +217,7 @@ public class EmbeddingApiClientTests
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken);
 
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(_statusCode)
             {
                 Content = new StringContent(_responseBody, Encoding.UTF8, "application/json")
             };
