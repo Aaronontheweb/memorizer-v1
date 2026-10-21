@@ -1,3 +1,15 @@
+#### 2.3.2 October 21st 2026 ####
+
+**Bug Fixes**
+- [Use Ollama's /api/embed with truncate so long memories can be stored](https://github.com/petabridge/memorizer/pull/253) - Memories longer than the embedding model's context window now store instead of failing
+  - Previously any memory whose title plus text exceeded the context window failed with "the input length exceeds the context length" — with the default `all-minilm` model (256 tokens), that is anything over roughly 700 characters
+  - The Ollama client now calls `/api/embed` with `truncate: true` in place of the legacy `/api/embeddings` endpoint, so the text is stored in full and its embedding is computed from the part that fits
+  - Existing embeddings stay valid: `/api/embed` returns L2-normalised vectors and search ranks by cosine distance
+  - Search can still only match the text that fits the context window — widening that needs a larger-context model
+- [Return an honest error when a write can't generate its embedding](https://github.com/petabridge/memorizer/pull/233) - A failed write says what went wrong and states that nothing was saved
+  - The previous generic "check the arguments against the tool's schema and retry" reply was misleading, since the arguments were not the problem
+  - The message now names the model, reports the input length, distinguishes text-too-long from backend-unavailable, and passes the backend's own error through
+
 #### 2.3.1 August 21st 2026 ####
 
 **Features**
